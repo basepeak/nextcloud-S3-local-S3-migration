@@ -15,11 +15,8 @@ ENV PATH_BASE=/var/www \
     DO_FILES_CLEAN=0 \
     DO_FILES_SCAN=0
 
-# Set the working directory
-# WORKDIR /app/
-
 # Install any necessary dependencies (if required)
-# RUN apk add --no-cache <dependencies>
+RUN apk add --no-cache mariadb-client  # mysqldump
 
 # Blocking entrypoint script to continue with the storage migration script
 RUN sed -i 's/^exec .*/exec ash/' /entrypoint.sh
