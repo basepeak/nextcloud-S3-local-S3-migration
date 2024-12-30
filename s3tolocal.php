@@ -12,6 +12,8 @@
 
 # runuser -u clouduser -- composer require aws/aws-sdk-php
 use Aws\S3\S3Client;
+use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Exception;
 
 echo "\n#########################################################################################";
 echo "\n Migration tool for Nextcloud S3 to local container version 0.35\n";
@@ -92,29 +94,40 @@ include($PATH_NEXTCLOUD.'/config/config.php');
 
 echo "\nconnect to sql-database...";
 // Database setup
-$mysqli = new mysqli($CONFIG['dbhost'], $CONFIG['dbuser'], $CONFIG['dbpassword'], $CONFIG['dbname']);
+$connectionParams = [
+    'dbname' => $CONFIG['dbname'],
+    'user' => $CONFIG['dbuser'],
+    'password' => $CONFIG['dbpassword'],
+    'host' => $CONFIG['dbhost'],
+    'driver' => 'pdo_mysql',
+    'charset' => $CONFIG['mysql.utf8mb4'] ? 'utf8mb4' : 'utf8',
+];
+try {
+  $conn = DriverManager::getConnection($connectionParams);
+  $conn->connect();
 if ($CONFIG['mysql.utf8mb4']) {
-  $mysqli->set_charset('utf8mb4');
+      $conn->executeQuery("SET NAMES 'utf8mb4'");
+  }
+} catch (Exception $e) {
+  echo "\nERROR: Could not connect to the database. " . $e->getMessage();
+  die;
 }
 
 ################################################################################ checks #
 $LOCAL_STORE_ID = 0;
-if ($result = $mysqli->query("SELECT * FROM `oc_storages` WHERE `id` = 'local::$PATH_DATA/'")) {
-  while ($row = $result->fetch_assoc()) {
+$query = "SELECT * FROM `oc_storages` WHERE `id` = 'local::$PATH_DATA/'";
+$result = $conn->executeQuery($query);
+
+if ($result->rowCount() > 0) {
+    while ($row = $result->fetchAssociative()) {
     echo "\nERROR: there already is a oc_storages record with 'local::$PATH_DATA/' (id:".$row['numeric_id'].")";
-  }
-  if ($result->num_rows>0) {
     echo "\nClean this up (check oc_filecache, oc_filecache_extended, oc_filecache_locks and more?)";
     echo "\n(keep one, or none.. check this source for some tips..)";
-    # those tips.... :
-    # SELECT `oc_filecache_extended`.`fileid`, `oc_filecache`.`storage` FROM `oc_filecache_extended` LEFT JOIN `oc_filecache` ON `oc_filecache`.`fileid` = `oc_filecache_extended`.`fileid`
-    # SELECT `oc_file_metadata`.`id`, `oc_filecache`.`storage` FROM `oc_file_metadata` LEFT JOIN `oc_filecache` ON `oc_filecache`.`fileid` = `oc_file_metadata`.`id`
   }
-  if ($result->num_rows>1) {
+  if ($result->rowCount() > 1) {
     echo "\nERROR: Multiple 'local::$PATH_DATA', it's an accident waiting to happen!!\n";
     die;
-  }
-  else if ($result->num_rows == 1) {
+  } elseif ($result->rowCount() == 1) {
     echo "\nWARNING/ERROR: Clean up `oc_filecache`";
     if (!$PATH_DATA_LOCAL_EXISTS_OK) {
       echo " and then set \$PATH_DATA_LOCAL_EXISTS_OK to 1 (be carefull!!!)\n";
@@ -126,25 +139,25 @@ if ($result = $mysqli->query("SELECT * FROM `oc_storages` WHERE `id` = 'local::$
         echo "We're in 'test mode', so we will continue.. but upon 'live' it'll fail!!\n";
       }
     }
-    $row = $result->fetch_assoc();
+    $row = $result->fetchAssociative();
     $LOCAL_STORE_ID = $row['numeric_id']; // for creative rename command..
     echo "\nThe local store  id $LOCAL_STORE_ID";
   }
 }
+
 $OBJECT_STORE_ID = 0;
-if ($result = $mysqli->query("SELECT * FROM `oc_storages` WHERE `id` LIKE 'object::store:%'")) {
-  if ($result->num_rows>1) {
+$query = "SELECT * FROM `oc_storages` WHERE `id` LIKE 'object::store:%'";
+$result = $conn->executeQuery($query);
+
+if ($result->rowCount() > 1) {
     echo "\nMultiple 'object::store:' clean this up, it's an accident waiting to happen!!\n";
     die;
-  }
-  else if ($result->num_rows == 0) {
+} elseif ($result->rowCount() == 0) {
     echo "\nNo 'object::store:' No S3 storage defined!?\n";
     die;
-  }
-  else {
-    $row = $result->fetch_assoc();
+} else {
+    $row = $result->fetchAssociative();
     $OBJECT_STORE_ID = $row['numeric_id']; // for creative rename command..
-  }
 }
 
 echo "\ndatabase backup...";
@@ -224,48 +237,48 @@ echo "\nSetting everything up finished #########################################
 
 echo "\nCreating folder structure started... ";
 
-if ($result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`.`storage_mtime` FROM".
+$query = "SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`.`storage_mtime` FROM".
                              " `oc_filecache` as `FC`,".
                              " `oc_storages`  as `ST`,".
                              " `oc_mimetypes` as `MT`".
                              " WHERE `ST`.`numeric_id` = `FC`.`storage`".
                               " AND `ST`.`id` LIKE 'object::%'".
                               " AND `FC`.`mimetype` = `MT`.`id`".
-                              " AND `MT`.`mimetype` = 'httpd/unix-directory'")) {
+         " AND `MT`.`mimetype` = 'httpd/unix-directory'";
   
-  // Init progress
-  $complete = $result->num_rows;
-  $prev     = '';
-  $current  = 0;
+$result = $conn->executeQuery($query);
+
+// Init progress
+$complete = $result->rowCount();
+$prev     = '';
+$current  = 0;
   
-  while ($row = $result->fetch_assoc()) {
-    $current++;
-    try {
-      // Determine correct path
-      if (substr($row['id'], 0, 13) != 'object::user:') {
-        $path = $PATH_DATA . DIRECTORY_SEPARATOR . $row['path'];
-      } else {
-        $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 13) . DIRECTORY_SEPARATOR . $row['path'];
-      }
-      // Create folder (if it doesn't already exist)
-      if (!file_exists($path)) {
-        mkdir($path, 0777, true);
-      }
-      #echo "\n".$path."\t";
-      touch($path, $row['storage_mtime']);
-    } catch (Exception $e) {
-      echo "    Failed to create: ".$row['path']." (".$e->getMessage().")\n";
-      $flag = false;
+while ($row = $result->fetchAssociative()) {
+  $current++;
+  try {
+    // Determine correct path
+    if (substr($row['id'], 0, 13) != 'object::user:') {
+      $path = $PATH_DATA . DIRECTORY_SEPARATOR . $row['path'];
+    } else {
+      $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 13) . DIRECTORY_SEPARATOR . $row['path'];
     }
-    // Update progress
-    $new = floor($current/$complete*100).'%';
-    if ($prev != $new ) {
-      echo str_repeat(chr(8) , strlen($prev) );
-      $prev = $current+1 >= $complete ? ' DONE ' : $new;
-      echo $prev;
+    // Create folder (if it doesn't already exist)
+    if (!file_exists($path)) {
+      mkdir($path, 0777, true);
     }
+    #echo "\n".$path."\t";
+    touch($path, $row['storage_mtime']);
+  } catch (Exception $e) {
+    echo "    Failed to create: ".$row['path']." (".$e->getMessage().")\n";
+    $flag = false;
   }
-  $result->free_result();
+  // Update progress
+  $new = floor($current/$complete*100).'%';
+  if ($prev != $new ) {
+    echo str_repeat(chr(8) , strlen($prev) );
+    $prev = $current+1 >= $complete ? ' DONE ' : $new;
+    echo $prev;
+  }
 }
 
 echo "\nCreating folder structure finished\n";
@@ -275,7 +288,7 @@ $error_copy = '';
 
 $users      = array();
 
-if ($result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`.`storage_mtime`, `FC`.`size`, `FC`.`storage` FROM".
+$query = "SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`.`storage_mtime`, `FC`.`size`, `FC`.`storage` FROM".
                              " `oc_filecache` AS `FC`,".
                              " `oc_storages`  AS `ST`,".
                              " `oc_mimetypes` AS `MT`".
@@ -283,87 +296,86 @@ if ($result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`
                               " AND `ST`.`id` LIKE 'object::%'".
                               " AND `FC`.`mimetype` = `MT`.`id`".
                               " AND `MT`.`mimetype` != 'httpd/unix-directory'".
-                             " ORDER BY `ST`.`id` ASC")) {
+                              " ORDER BY `ST`.`id` ASC";
 
-  // Init progress
-  $complete = $result->num_rows;
-  $current  = 0;
-  $prev     = '';
+$result = $conn->executeQuery($query);
+// Init progress
+$complete = $result->rowCount();
+$current  = 0;
+$prev     = '';
 
-  while ($row = $result->fetch_assoc()) {
-    $current++;
-    try {
-      // Determine correct path
-      if (substr($row['id'], 0, 13) != 'object::user:') {
-        $path = $PATH_DATA . DIRECTORY_SEPARATOR . $row['path'];
-      } else {
-        $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 13) . DIRECTORY_SEPARATOR . $row['path'];
-      }
-      $user = substr($path, strlen($PATH_DATA. DIRECTORY_SEPARATOR));
-      $user = substr($user,0,strpos($user,DIRECTORY_SEPARATOR));
-      $users[ $user ] = $row['storage'];
-
-      # just for one user? set test = appdata_oczvcie795w3 (system wil not go to maintenance nor change database, just test and copy data!!)
-      if (is_numeric($TEST) || $TEST == $user ) {
-        #echo "\n".$path."\t".$row['storage_mtime'];
-        $copy = 1;
-        if(file_exists($path) && is_file($path)){
-          if ($row['storage_mtime'] > filemtime($path) ) {
-            unlink($path);
-          }
-          else { $copy = 0;}#echo '.'; }
-        }
-        if ($copy) {
-          $path_bkp = str_replace($PATH_DATA,
-                                  $PATH_DATA_BKP,
-                                  $path);
-          if (file_exists($path_bkp) && is_file($path_bkp)
-           && $row['storage_mtime'] == filemtime($path_bkp) ) {
-            if (rename($path_bkp,
-                       $path) ) {
-              $copy = 0;
-            } else {
-              echo "\nmove failed!?\n";
-              exit;
-            }
-            #echo ':';
-          }
-        }
-        if ($copy) {
-          // Download file from S3
-          $s3->getObject(array(
-            'Bucket' => $bucket,
-            'Key'    => 'urn:oid:'.$row['fileid'],
-            'SaveAs' => $path,
-          ));
-          // Also set modification time
-          touch($path, $row['storage_mtime']);
-          #echo '!';
-        }
-        #echo ''.$copy."\n";if ($copy) { exit;} 
-      }
-    } catch (Exception $e) {
-      if(file_exists($path) && is_file($path) ){
-        unlink($path);
-      }
-      echo "\n#########################################################################################";
-      echo "\nFailed to transfer: $row[fileid] (".$e->getMessage().")\n";
-      echo "\ntarget: ".$path."\n";
-      echo "datadump of database record:\n";
-      print_r($row);
-      $error_copy.= $path."\n";
-      $prev = '';
-      #exit;
+while ($row = $result->fetchAssociative()) {
+  $current++;
+  try {
+    // Determine correct path
+    if (substr($row['id'], 0, 13) != 'object::user:') {
+      $path = $PATH_DATA . DIRECTORY_SEPARATOR . $row['path'];
+    } else {
+      $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 13) . DIRECTORY_SEPARATOR . $row['path'];
     }
-    // Update progress
-    $new = sprintf('%.2f',$current/$complete*100).'% (now at user '.$user.')';
-    if ($prev != $new ) {
-      echo str_repeat(chr(8) , strlen($prev) );
-      $prev = $current+1 >= $complete ? ' DONE ' : $new;
-      echo $prev;
+    $user = substr($path, strlen($PATH_DATA. DIRECTORY_SEPARATOR));
+    $user = substr($user,0,strpos($user,DIRECTORY_SEPARATOR));
+    $users[ $user ] = $row['storage'];
+
+    # just for one user? set test = appdata_oczvcie795w3 (system wil not go to maintenance nor change database, just test and copy data!!)
+    if (is_numeric($TEST) || $TEST == $user ) {
+      #echo "\n".$path."\t".$row['storage_mtime'];
+      $copy = 1;
+      if(file_exists($path) && is_file($path)){
+        if ($row['storage_mtime'] > filemtime($path) ) {
+          unlink($path);
+        }
+        else { $copy = 0;}#echo '.'; }
+      }
+      if ($copy) {
+        $path_bkp = str_replace($PATH_DATA,
+                                $PATH_DATA_BKP,
+                                $path);
+        if (file_exists($path_bkp) && is_file($path_bkp)
+          && $row['storage_mtime'] == filemtime($path_bkp) ) {
+          if (rename($path_bkp,
+                      $path) ) {
+            $copy = 0;
+          } else {
+            echo "\nmove failed!?\n";
+            exit;
+          }
+          #echo ':';
+        }
+      }
+      if ($copy) {
+        // Download file from S3
+        $s3->getObject(array(
+          'Bucket' => $bucket,
+          'Key'    => 'urn:oid:'.$row['fileid'],
+          'SaveAs' => $path,
+        ));
+        // Also set modification time
+        touch($path, $row['storage_mtime']);
+        #echo '!';
+      }
+      #echo ''.$copy."\n";if ($copy) { exit;} 
     }
+  } catch (Exception $e) {
+    if(file_exists($path) && is_file($path) ){
+      unlink($path);
+    }
+    echo "\n#########################################################################################";
+    echo "\nFailed to transfer: $row[fileid] (".$e->getMessage().")\n";
+    echo "\ntarget: ".$path."\n";
+    echo "datadump of database record:\n";
+    print_r($row);
+    $error_copy.= $path."\n";
+    $prev = '';
+    #exit;
   }
-  $result->free_result();
+  // Update progress
+  $new = sprintf('%.2f',$current/$complete*100).'% (now at user '.$user.')';
+  if ($prev != $new ) {
+    echo str_repeat(chr(8) , strlen($prev) );
+    $prev = $current+1 >= $complete ? ' DONE ' : $new;
+    echo $prev;
+  }
 }
 echo "\n";
 #exit; ###################################################################################
@@ -395,21 +407,20 @@ if (empty($TEST)) {
   echo "\n#########################################################################################";
   echo "\nModifying database started...\n";
   
-  $mysqli->query("UPDATE `oc_storages` SET id=CONCAT('home::', SUBSTRING_INDEX(oc_storages.id,':',-1)) WHERE `oc_storages`.`id` LIKE 'object::user:%'");
+  $conn->executeQuery("UPDATE `oc_storages` SET id=CONCAT('home::', SUBSTRING_INDEX(oc_storages.id,':',-1)) WHERE `oc_storages`.`id` LIKE 'object::user:%'");
   
   //rename command
-  if ($LOCAL_STORE_ID == 0
-   || $OBJECT_STORE_ID== 0) { // standard rename
-    $mysqli->query("UPDATE `oc_storages` SET `id`='local::$PATH_DATA/' WHERE `oc_storages`.`id` LIKE 'object::store:%'");
+  if ($LOCAL_STORE_ID == 0 || $OBJECT_STORE_ID == 0) { // standard rename
+    $conn->executeQuery("UPDATE `oc_storages` SET `id`='local::$PATH_DATA/' WHERE `oc_storages`.`id` LIKE 'object::store:%'");
   } else {
-    $mysqli->query("UPDATE `oc_filecache` SET `storage` = '".$LOCAL_STORE_ID."' WHERE `storage` = '".$OBJECT_STORE_ID."'");
-    $mysqli->query("DELETE FROM `oc_storages` WHERE `oc_storages`.`numeric_id` = ".$OBJECT_STORE_ID);
+    $conn->executeQuery("UPDATE `oc_filecache` SET `storage` = '".$LOCAL_STORE_ID."' WHERE `storage` = '".$OBJECT_STORE_ID."'");
+    $conn->executeQuery("DELETE FROM `oc_storages` WHERE `oc_storages`.`numeric_id` = ".$OBJECT_STORE_ID);
   }
 
   foreach ($users as $key => $value) {
-    $mysqli->query("UPDATE `oc_mounts` SET `mount_provider_class` = REPLACE(`mount_provider_class`, 'ObjectHomeMountProvider', 'LocalHomeMountProvider') WHERE `user_id` = '".$key."'");
-    if ($mysqli->affected_rows == 1) {
-      echo $dashLine."\n-Changed mount provider class off ".$key." from home to object";
+    $conn->executeQuery("UPDATE `oc_mounts` SET `mount_provider_class` = REPLACE(`mount_provider_class`, 'ObjectHomeMountProvider', 'LocalHomeMountProvider') WHERE `user_id` = '".$key."'");
+    if ($conn->rowCount() == 1) {
+      echo $dashLine."\n-Changed mount provider class of ".$key." from home to object";
       $dashLine = '';
     }
   }

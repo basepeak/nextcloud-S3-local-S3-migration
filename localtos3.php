@@ -13,6 +13,8 @@
 
 # runuser -u clouduser -- composer require aws/aws-sdk-php
 use Aws\S3\S3Client;
+use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Exception;
 
 # uncomment this for large file uploads (Amazon advises this voor 100Mb+ files)
 #use Aws\S3\MultipartUploader;
@@ -95,7 +97,7 @@ if (!empty($CONFIG['objectstore'])) {
   if (is_string($CONFIG_OBJECTSTORE) && file_exists($CONFIG_OBJECTSTORE)) {
     $CONFIG_MERGE = $CONFIG;
     include($CONFIG_OBJECTSTORE);
-    $CONFIG = array_merge($CONFIG_MERGE,$CONFIG);
+      $CONFIG = array_merge($CONFIG_MERGE,$CONFIG);
   }
   else if (is_array($CONFIG_OBJECTSTORE)) {
     $CONFIG['objectstore'] = $CONFIG_OBJECTSTORE;
@@ -108,56 +110,65 @@ $PATH_DATA = preg_replace('/\/*$/','',$CONFIG['datadirectory']);
 
 echo "\nconnect to sql-database...";
 // Database setup
-$mysqli = new mysqli($CONFIG['dbhost'], $CONFIG['dbuser'], $CONFIG['dbpassword'], $CONFIG['dbname']);
+$connectionParams = [
+    'dbname' => $CONFIG['dbname'],
+    'user' => $CONFIG['dbuser'],
+    'password' => $CONFIG['dbpassword'],
+    'host' => $CONFIG['dbhost'],
+    'driver' => 'pdo_mysql',
+];
+try {
+    $conn = DriverManager::getConnection($connectionParams);
+    $conn->connect();
 if ($CONFIG['mysql.utf8mb4']) {
-  $mysqli->set_charset('utf8mb4');
+        $conn->executeQuery("SET NAMES 'utf8mb4'");
+    }
+} catch (Exception $e) {
+    echo "\nERROR: Could not connect to the database. " . $e->getMessage();
+    die;
 }
 
 ################################################################################ checks #
 $LOCAL_STORE_ID = 0;
-if ($result = $mysqli->query("SELECT * FROM `oc_storages` WHERE `id` = 'local::$PATH_DATA/'")) {
-  if ($result->num_rows>1) {
+$result = $conn->executeQuery("SELECT * FROM `oc_storages` WHERE `id` = 'local::$PATH_DATA/'");
+if ($result->rowCount() > 1) {
     echo "\nERROR: Multiple 'local::$PATH_DATA', it's an accident waiting to happen!!\n";
     die;
-  }
-  else if ($result->num_rows == 1) {
+} elseif ($result->rowCount() == 1) {
     echo "\nFOUND 'local::$PATH_DATA', good. ";
-    $row = $result->fetch_assoc();
+    $row = $result->fetchAssociative();
     $LOCAL_STORE_ID = $row['numeric_id']; // for creative rename command..
     echo "\nThe local store  id is:$LOCAL_STORE_ID";
-  } else {
+} else {
     echo "\nWARNING: no 'local::$PATH_DATA' found, therefor no sync local data > S3!\n";
-  }
 }
+
 $OBJECT_STORE_ID = 0;
-if ($result = $mysqli->query("SELECT * FROM `oc_storages` WHERE `id` LIKE 'object::store:amazon::".$CONFIG['objectstore']['arguments']['bucket']."'")) {
-  if ($result->num_rows>1) {
+$result = $conn->executeQuery("SELECT * FROM `oc_storages` WHERE `id` LIKE 'object::store:amazon::".$CONFIG['objectstore']['arguments']['bucket']."'");
+if ($result->rowCount() > 1) {
     echo "\nMultiple 'object::store:amazon::".$CONFIG['objectstore']['arguments']['bucket']."' clean this up, it's an accident waiting to happen!!\n\n";
     die;
-  }
-  else if ($result->num_rows == 0) {
-    if (empty($CONFIG['objectstore'])) {
-      echo "\nERROR: No 'object::store:' & NO S3 storage defined\n\n";
-      die;
-    } else {
-      echo "\nNOTE: No 'object::store:' > S3 storage  = defined\n\n";
-      echo "\n Upon migration local will be renamed to object::store";
-    }
-  }
-  else {
-    echo "\nFOUND 'object::store:amazon::".$CONFIG['objectstore']['arguments']['bucket']."', OK";
-    $row = $result->fetch_assoc();
-    $OBJECT_STORE_ID = $row['numeric_id']; // for creative rename command..
-    echo "\nThe object store id is:$OBJECT_STORE_ID";
-    
-    $result = $mysqli->query("SELECT `fileid` FROM `oc_filecache` WHERE `storage` = ".$OBJECT_STORE_ID);
-    if ( $result->num_rows > 0 ) {
-      echo "\n\nWARNING: if this is for a full migration remove all data with `storage` = $OBJECT_STORE_ID in your `oc_filecache` !!!!\n";
-    }
-    
+} elseif ($result->rowCount() == 0) {
+  if (empty($CONFIG['objectstore'])) {
+    echo "\nERROR: No 'object::store:' & NO S3 storage defined\n\n";
+    die;
+  } else {
+    echo "\nNOTE: No 'object::store:' > S3 storage  = defined\n\n";
+    echo "\n Upon migration local will be renamed to object::store";
   }
 }
-$result->free_result();
+else {
+  echo "\nFOUND 'object::store:amazon::".$CONFIG['objectstore']['arguments']['bucket']."', OK";
+  $row = $result->fetchAssociative();
+  $OBJECT_STORE_ID = $row['numeric_id']; // for creative rename command..
+  echo "\nThe object store id is:$OBJECT_STORE_ID";
+  
+  $result = $conn->executeQuery("SELECT `fileid` FROM `oc_filecache` WHERE `storage` = ".$OBJECT_STORE_ID);
+  if ($result->rowCount() > 0) {
+    echo "\n\nWARNING: if this is for a full migration remove all data with `storage` = $OBJECT_STORE_ID in your `oc_filecache` !!!!\n";
+  }
+    
+}
 
 echo "\n".
      "\n######################################################################################### ".$TEST;
@@ -292,7 +303,7 @@ $PREVIEW_DEL = [0,0];
 $PREVIEW_REM = [0,0];
 $PREVIEW_1YR = [0,0];
 
-if (!$result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`.`size`, `FC`.`storage_mtime` FROM".
+if (!$result = $conn->executeQuery("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`.`size`, `FC`.`storage_mtime` FROM".
                              " `oc_filecache` as `FC`,".
                              " `oc_storages`  as `ST`,".
                              " `oc_mimetypes` as `MT`".
@@ -309,11 +320,10 @@ if (!$result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC
   echo "\nERROR: query pos 1";
   die;
 } else {
-  if ($PREVIEW_MAX_DEL > 0
-   && $PREVIEW_MAX_DEL < 1) {
-    $PREVIEW_MAX_DEL*= $result->num_rows;
+  if ($PREVIEW_MAX_DEL > 0 && $PREVIEW_MAX_DEL < 1) {
+      $PREVIEW_MAX_DEL *= $result->rowCount();
   }
-  while ($row = $result->fetch_assoc()) {
+  while ($row = $result->fetchAssociative()) {
     // Determine correct path
     if (substr($row['id'], 0, 13) == 'object::user:') {
       $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 13) . DIRECTORY_SEPARATOR . $row['path'];
@@ -333,24 +343,23 @@ if (!$result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC
         if(file_exists($path) && is_file($path)){
           unlink($path);
         }
-        $result_s3 =  S3del($s3, $bucket, 'urn:oid:'.$row['fileid']);
-        $mysqli->query("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ".$row['fileid']);
+        $result_s3 = S3del($s3, $bucket, 'urn:oid:' . $row['fileid']);
+        $conn->executeQuery("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ?", [$row['fileid']]);
       } else {
         echo "\nfileID ".$matches[2]." has a preview older then the set \$PREVIEW_MAX_AGE";
       }
       $PREVIEW_DEL[1] += $row['size'];
       $PREVIEW_DEL[0]++;
     } else {
-      if (preg_match('/\/preview\/([a-f0-9]\/[a-f0-9]\/[a-f0-9]\/[a-f0-9]\/[a-f0-9]\/[a-f0-9]\/[a-f0-9]\/)?([0-9]+)\/[^\/]+$/',$path,$matches)) {
-        #echo "check fileID".$matches[2].' ';
-        $result2 = $mysqli->query("SELECT `storage` FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ".$matches[2]);
-        if ($result2->num_rows == 0 ) {
+      if (preg_match('/\/preview\/([a-f0-9]\/[a-f0-9]\/[a-f0-9]\/[a-f0-9]\/[a-f0-9]\/[a-f0-9]\/[a-f0-9]\/)?([0-9]+)\/[^\/]+$/', $path, $matches)) {
+        $result2 = $conn->executeQuery("SELECT `storage` FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ?", [$matches[2]]);
+        if ($result2->rowCount() == 0) {
           if (empty($TEST)) {
             if(file_exists($path) && is_file($path)){
               unlink($path);
             }
-            $result_s3 =  S3del($s3, $bucket, 'urn:oid:'.$row['fileid']);
-            $mysqli->query("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ".$row['fileid']);
+            $result_s3 = S3del($s3, $bucket, 'urn:oid:' . $row['fileid']);
+            $conn->executeQuery("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ?", [$row['fileid']]);
           } else {
             echo "\nfileID ".$matches[2]." has a preview, but the source file does not exist, would delete the preview (fileID ".$row['fileid'].")";
           }
@@ -364,14 +373,12 @@ if (!$result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC
           $PREVIEW_NOW[1] += $row['size'];
           $PREVIEW_NOW[0]++;
         }
-        $result2->free_result();
       } else {
         echo "\n\nERROR:  path format not as expected (".$row['fileid']." : $path)";
         echo "\n\tremove the database entry..";
         if (empty($TEST)) {
-          $mysqli->query("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ".$row['fileid']);
-        }
-        else {
+          $conn->executeQuery("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ?", [$row['fileid']]);
+        } else {
           echo " ONLY with \$TEST = 0 the DB entry will be removed!";
         }
         echo "\n";
@@ -379,7 +386,6 @@ if (!$result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC
     }
     
   }
-  $result->free_result();
 }
 
 if ($PREVIEW_DEL[0] > 0
@@ -439,7 +445,7 @@ else {
       die;
     }
     
-    if (!$result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`.`storage_mtime`, `FC`.`size`, `FC`.`storage` FROM".
+    if (!$result = $conn->executeQuery("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`.`storage_mtime`, `FC`.`size`, `FC`.`storage` FROM".
                                  " `oc_filecache` AS `FC`,".
                                  " `oc_storages`  AS `ST`,".
                                  " `oc_mimetypes` AS `MT`".
@@ -454,11 +460,10 @@ else {
       echo "\nERROR: query pos 2";
       die;
     } else {
-      if ($result->num_rows>1) {
+    if ($result->rowCount() > 1) {
         echo "\ndouble file found in oc_filecache, this can not be!?\n";
         die;
-      }
-      else if ($result->num_rows == 0) { # in s3, not in db, remove from s3
+    } else if ($result->rowCount() == 0) { # in s3, not in db, remove from s3
         if ($showinfo) { echo $infoLine."\nID:".$object['Key']."\ton S3, but not in oc_filecache, remove..."; }
         if (!empty($TEST)) { #  && $TEST == 2
           echo ' not removed ($TEST != 0)';
@@ -468,9 +473,8 @@ else {
         }
         $S3_removed[0]++;
         $S3_removed[1]+=$object['Size'];
-      }
-      else { # one match, up to date?
-        $row = $result->fetch_assoc();
+    } else { # one match, up to date?
+        $row = $result->fetchAssociative();
 
         // Determine correct path
         if (substr($row['id'], 0, 13) == 'object::user:') {
@@ -536,7 +540,6 @@ else {
         echo $prev;
       }
     }
-    $result->free_result();
   }
   if (!$showinfo) {
     echo str_repeat(chr(8) , strlen($prev) );
@@ -560,7 +563,7 @@ echo "\n".
      "\n#########################################################################################".
      "\ncheck files in oc_filecache... ";
 
-if (!$result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`.`storage_mtime`, `FC`.`size`, `FC`.`storage` FROM".
+if (!$result = $conn->executeQuery("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC`.`storage_mtime`, `FC`.`size`, `FC`.`storage` FROM".
                              " `oc_filecache` AS `FC`,".
                              " `oc_storages`  AS `ST`,".
                              " `oc_mimetypes` AS `MT`".
@@ -577,17 +580,17 @@ if (!$result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC
   die;
 } else {
   // Init progress
-  $complete = $result->num_rows;
+    $complete = $result->rowCount();
   $prev     = '';
   $current  = 0;
 
-  echo "\nNumber of objects in oc_filecache: ".$result->num_rows.' ';
+    echo "\nNumber of objects in oc_filecache: ".$result->rowCount().' ';
   
   $showinfo = !empty($TEST);
   $showinfo = 0;
   
   $LOCAL_ADDED = [0,0];
-  while ($row = $result->fetch_assoc()) {
+    while ($row = $result->fetchAssociative()) {
     $current++;
 
     if (empty($objectIDs[ $row['fileid'] ]) ) {
@@ -633,7 +636,7 @@ if (!$result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC
         } else {
           echo "\n".$path." (id:".$row['fileid'].") DOES NOT EXIST?!\n";
           if (empty($TEST)) {
-            $mysqli->query("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ".$row['fileid']);
+            $conn->executeQuery("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ?", [$row['fileid']]);
             echo "\t".'removed ($TEST = 0)'."\n";
           } else {
             echo "\t".'not removed ($TEST != 0)'."\n";
@@ -655,7 +658,6 @@ if (!$result = $mysqli->query("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`, `FC
       echo $prev;
     }
   }
-  $result->free_result();
   if (!$showinfo) {
     echo str_repeat(chr(8) , strlen($prev) );
     $new = ' DONE ';
@@ -672,7 +674,7 @@ echo "\n". # inspiration source: https://github.com/otherguy/nextcloud-cleanup/b
      "\ncheck for canceled uploads in oc_filecache...".
      "\n=> EXPERIMENTAL, I have not had this problem, so can not test.. => check only!";
 
-if (!$result = $mysqli->query("SELECT `oc_filecache`.`fileid`, `oc_filecache`.`path`, `oc_filecache`.`parent`, `oc_storages`.`id` AS `storage`, `oc_filecache`.`size`".
+if (!$result = $conn->executeQuery("SELECT `oc_filecache`.`fileid`, `oc_filecache`.`path`, `oc_filecache`.`parent`, `oc_storages`.`id` AS `storage`, `oc_filecache`.`size`".
                              " FROM `oc_filecache`".
                              " LEFT JOIN `oc_storages` ON `oc_storages`.`numeric_id` = `oc_filecache`.`storage`".
                              " WHERE `oc_filecache`.`parent` IN (".
@@ -687,7 +689,7 @@ if (!$result = $mysqli->query("SELECT `oc_filecache`.`fileid`, `oc_filecache`.`p
   $S3_removed = [0,0];
   $S3_PARENTS = [];
 
-  while ($row = $result->fetch_assoc()) {
+  while ($row = $result->fetchAssociative()) {
     echo "\nCanceled upload: ".$row['path']." ( ".$row['size']." bytes)";
     $S3_removed[0]++;
     $S3_removed[1]+=$row['size'];
@@ -701,7 +703,7 @@ if (!$result = $mysqli->query("SELECT `oc_filecache`.`fileid`, `oc_filecache`.`p
     } else {
       $result_s3 =  S3del($s3, $bucket, 'urn:oid:'.$row['fileid']);
       if ($showinfo) { echo 'S3del:'.$result_s3; }
-      $mysqli->query("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ".$row['fileid']);
+      $conn->executeQuery("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ?", [$row['fileid']]);
     }
   }
   if ($S3_removed[0] > 0 ) {
@@ -717,7 +719,7 @@ if (!$result = $mysqli->query("SELECT `oc_filecache`.`fileid`, `oc_filecache`.`p
       if (!empty($TEST) && $TEST == 2) {
         echo ' not removed ($TEST = 2)';
       } else {
-        $mysqli->query("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ".$s3_parent);
+        $conn->executeQuery("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ?", [$s3_parent]);
         echo ' removed';
       }
     }
@@ -729,18 +731,16 @@ if (empty($TEST)) {
   $dashLine = "\n".
               "\n#########################################################################################";
               
-  $mysqli->query("UPDATE `oc_storages` SET `id`=CONCAT('object::user:', SUBSTRING_INDEX(`oc_storages`.`id`,':',-1)) WHERE `oc_storages`.`id` LIKE 'home::%'");
-  $UpdatesDone = $mysqli->affected_rows;
+  $conn->executeQuery("UPDATE `oc_storages` SET `id`=CONCAT('object::user:', SUBSTRING_INDEX(`oc_storages`.`id`,':',-1)) WHERE `oc_storages`.`id` LIKE 'home::%'");
+  $UpdatesDone = $conn->executeQuery("SELECT ROW_COUNT()")->fetchOne();
   
   //rename command
-  if ($LOCAL_STORE_ID == 0
-   || $OBJECT_STORE_ID== 0) { // standard rename
-    $mysqli->query("UPDATE `oc_storages` SET `id`='object::store:amazon::".$bucket."' WHERE `oc_storages`.`id` LIKE 'local::".$PATH_DATA."/'");
-    $UpdatesDone.= '/'.$mysqli->affected_rows;
+  if ($LOCAL_STORE_ID == 0 || $OBJECT_STORE_ID == 0) { // standard rename
+    $conn->executeQuery("UPDATE `oc_storages` SET `id`='object::store:amazon::".$bucket."' WHERE `oc_storages`.`id` LIKE 'local::".$PATH_DATA."/'");
+    $UpdatesDone .= '/'.$conn->executeQuery("SELECT ROW_COUNT()")->fetchOne();
   } else {
-    $mysqli->query("UPDATE `oc_filecache` SET `storage` = '".$OBJECT_STORE_ID."' WHERE `storage` = '".$LOCAL_STORE_ID."'");
-    $UpdatesDone.= '/'.$mysqli->affected_rows;
-    #$mysqli->query("DELETE FROM `oc_storages` WHERE `oc_storages`.`numeric_id` = ".$OBJECT_STORE_ID);
+        $conn->executeQuery("UPDATE `oc_filecache` SET `storage` = '".$OBJECT_STORE_ID."' WHERE `storage` = '".$LOCAL_STORE_ID."'");
+        $UpdatesDone .= '/'.$conn->executeQuery("SELECT ROW_COUNT()")->fetchOne();
   }
   if ($UpdatesDone == '0/0' ) {
 #    echo $dashLine." no modefications needed";
@@ -749,9 +749,9 @@ if (empty($TEST)) {
   }
 
   foreach ($users as $key => $value) {
-    $mysqli->query("UPDATE `oc_mounts` SET `mount_provider_class` = REPLACE(`mount_provider_class`, 'LocalHomeMountProvider', 'ObjectHomeMountProvider') WHERE `user_id` = '".$key."'");
-    if ($mysqli->affected_rows == 1) {
-      echo $dashLine."\n-Changed mount provider class off ".$key." from home to object";
+      $conn->executeQuery("UPDATE `oc_mounts` SET `mount_provider_class` = REPLACE(`mount_provider_class`, 'LocalHomeMountProvider', 'ObjectHomeMountProvider') WHERE `user_id` = '".$key."'");
+      if ($conn->executeQuery("SELECT ROW_COUNT()")->fetchOne() == 1) {
+          echo $dashLine."\n-Changed mount provider class of ".$key." from home to object";
       $dashLine = '';
     }
   }  
