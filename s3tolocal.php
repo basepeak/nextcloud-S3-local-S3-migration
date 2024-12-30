@@ -14,35 +14,34 @@
 use Aws\S3\S3Client;
 
 echo "\n#########################################################################################";
-echo "\n Migration tool for Nextcloud S3 to local version 0.34\n";
+echo "\n Migration tool for Nextcloud S3 to local container version 0.35\n";
 echo "\n Reading config...";
 
 // Note: Preferably use absolute path without trailing directory separators
-$PATH_BASE      = '/var/www/vhost/nextcloud'; // Path to the base of the main Nextcloud directory
-
-$PATH_NEXTCLOUD = $PATH_BASE.'/public_html'; // Path of the public Nextcloud directory
-$PATH_DATA      = $PATH_BASE.'/data'; // Path of the new Nextcloud data directory
-$PATH_DATA_BKP  = $PATH_BASE.'/data.bkp'; // Path of a previous migration.. to speed things up.. (manually move a previous migration here!!)
-$PATH_BACKUP    = $PATH_BASE.'/bak'; // Path for backup of MySQL database
+$PATH_BASE      = getenv('PATH_BASE') ?: '/var/www/vhost/nextcloud'; // Path to the base of the main Nextcloud directory
+$PATH_NEXTCLOUD = getenv('PATH_NEXTCLOUD') ?: $PATH_BASE.'/public_html'; // Path of the public Nextcloud directory
+$PATH_DATA      = getenv('PATH_DATA') ?: $PATH_BASE.'/data'; // Path of the new Nextcloud data directory
+$PATH_DATA_BKP  = getenv('PATH_DATA_BKP') ?: $PATH_BASE.'/data.bkp'; // Path of a previous migration.. to speed things up.. (manually move a previous migration here!!)
+$PATH_BACKUP    = getenv('PATH_BACKUP') ?: $PATH_BASE.'/bak'; // Path for backup of MySQL database
 
 // don't forget this one -.
-$OCC_BASE       = 'sudo -u clouduser php82 -d memory_limit=1024M '.$PATH_NEXTCLOUD.'/occ ';
+$OCC_BASE       = getenv('OCC_BASE') ?: 'sudo -u clouduser php82 -d memory_limit=1024M '.$PATH_NEXTCLOUD.'/occ ';
 // fill this variable ONLY when you are unable to run the 'occ' command above as the clouduser 
-$CLOUDUSER      = ''; // example 'clouduser:group';
+$CLOUDUSER      = getenv('CLOUDUSER') ?: ''; // example 'clouduser:group';
 
-$TEST = 1; //'admin';//'appdata_oczvcie123w4';
+$TEST = getenv('TEST') ?: 1; //'admin';//'appdata_oczvcie123w4';
 // set to 0 for LIVE!!
 // set to 1 just get all the data to local, NO database chainges
 // set to user name for single user (migration) test
 
-$NON_EMPTY_TARGET_OK = 1;
+$NON_EMPTY_TARGET_OK = getenv('NON_EMPTY_TARGET_OK') ?: 1;
 
-$PATH_DATA_LOCAL_EXISTS_OK = 1; //default 0 !! Only set to 1 if you're sure..
+$PATH_DATA_LOCAL_EXISTS_OK = getenv('PATH_DATA_LOCAL_EXISTS_OK') ?: 1; //default 0 !! Only set to 1 if you're sure..
 
-$NR_OF_COPY_ERRORS_OK = 8;
+$NR_OF_COPY_ERRORS_OK = getenv('NR_OF_COPY_ERRORS_OK') ?: 8;
 
-$SQL_DUMP_USER = ''; // leave both empty if nextcloud user has enough rights..
-$SQL_DUMP_PASS = '';
+$SQL_DUMP_USER = getenv('SQL_DUMP_USER') ?: ''; // leave both empty if nextcloud user has enough rights..
+$SQL_DUMP_PASS = getenv('SQL_DUMP_PASS') ?: '';
 
 if ($NON_EMPTY_TARGET_OK
  || !empty($TEST)) {
@@ -57,8 +56,17 @@ if ($NON_EMPTY_TARGET_OK
 echo "\n\n#########################################################################################";
 echo "\nSetting up S3 migration to local...\n";
 
-// Autoload
-require_once(dirname(__FILE__).'/vendor/autoload.php');
+// Autoload composer from either vendor or 3rdparty folder
+if (file_exists(dirname(__FILE__).'/vendor/autoload.php')) {
+  echo "\nDEBUG: Loading Composer autoload from vendor folder";
+  require_once(dirname(__FILE__).'/vendor/autoload.php');
+} elseif (file_exists(dirname(__FILE__).'/3rdparty/autoload.php')) {
+  echo "\nDEBUG: Loading Composer autoload from 3rdparty folder";
+  require_once(dirname(__FILE__).'/3rdparty/autoload.php');
+} else {
+  echo "\nERROR: Composer autoload not found, run 'composer install' first!\n\n";
+  die;
+}
 
 if (empty($TEST)) {
   // Activate maintenance mode
@@ -75,7 +83,11 @@ if (empty($TEST)) {
   }
 }
 
-echo "\nfirst load the nextcloud config...";
+if (!file_exists($PATH_NEXTCLOUD.'/config/config.php')) {
+  echo "\nERROR: config.php not found at ".$PATH_NEXTCLOUD.'/config/config.php';
+  echo " Initialize Nextcloud config first!\n\n";
+  exit(1);
+}
 include($PATH_NEXTCLOUD.'/config/config.php');
 
 echo "\nconnect to sql-database...";

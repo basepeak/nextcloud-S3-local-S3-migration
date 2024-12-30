@@ -20,42 +20,43 @@ use Aws\S3\S3Client;
 #$MULTIPART['retry']     =   0; #number of retry attempts (set to 0 for just one try)
 
 echo "\n#########################################################################################".
-     "\n Migration tool for Nextcloud local to S3 version 0.41".
+     "\n Migration tool for Nextcloud local to S3 container version 0.42".
      "\n".
      "\n Reading config...";
 
-$PREVIEW_MAX_AGE = 0; // max age (days) of preview images (EXPERIMENTAL! 0 = no del)
-$PREVIEW_MAX_DEL = 0.005; // max amount of previews to delete at a time (when < 1 & > 0 => percentage! )..
-
-// Note: Preferably use absolute path without trailing directory separators
-$PATH_BASE      = '/var/www/vhost/nextcloud'; // Path to the base of the main Nextcloud directory
-
-$PATH_NEXTCLOUD = $PATH_BASE.'/public_html'; // Path of the public Nextcloud directory
-
-$PATH_BACKUP    = $PATH_BASE.'/bak'; // Path for backup of MySQL database (you must create it yourself..)
-
-$OCC_BASE       = 'sudo -u clouduser php82 -d memory_limit=1024M '.$PATH_NEXTCLOUD.'/occ ';
-// don't forget this one --. (if you don't run the script as the 'clouduser', see first comment at the top)
-#$OCC_BASE       = 'sudo -u clouduser php81 -d memory_limit=1024M '.$PATH_NEXTCLOUD.'/occ ';
-// set $TEST to 0 for LIVE!!
-// set $TEST to 1 for all data : NO db modifications, with file modifications/uplaods/removal
-// set $TEST to user name for single user (migration) test
-// set $TEST to 2 for complete dry run
-$TEST = 2; //'admin';//'appdata_oczvcie123w4';
-
-// ONLY when migration is all done you can set this to 0 for the S3-consitancy checks
-$SET_MAINTENANCE = 1; // only in $TEST=0 Nextcloud will be put into maintenance mode
-
-$SHOWINFO = 1; // set to 0 to force much less info (while testing)
-
-$SQL_DUMP_USER = ''; // leave both empty if nextcloud user has enough rights..
-$SQL_DUMP_PASS = '';
-
-$CONFIG_OBJECTSTORE = dirname(__FILE__).'/storage.config.php';
-
-# It is probably wise to set the two vars below to '1' once, let the 'Nextcloud' do some checking..
-$DO_FILES_CLEAN = 0; // perform occ files:cleanup    | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
-$DO_FILES_SCAN  = 0; // perform occ files:scan --all | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
+     $PREVIEW_MAX_AGE = getenv('PREVIEW_MAX_AGE') ?: 0; // max age (days) of preview images (EXPERIMENTAL! 0 = no del)
+     $PREVIEW_MAX_DEL = getenv('PREVIEW_MAX_DEL') ?: 0.005; // max amount of previews to delete at a time (when < 1 & > 0 => percentage! )..
+     
+     // Note: Preferably use absolute path without trailing directory separators
+     $PATH_BASE      = getenv('PATH_BASE') ?: '/var/www/vhost/nextcloud'; // Path to the base of the main Nextcloud directory
+     
+     $PATH_NEXTCLOUD = getenv('PATH_NEXTCLOUD') ?: $PATH_BASE.'/public_html'; // Path of the public Nextcloud directory
+     
+     $PATH_BACKUP    = getenv('PATH_BACKUP') ?: $PATH_BASE.'/bak'; // Path for backup of MySQL database (you must create it yourself..)
+     
+     $OCC_BASE       = getenv('OCC_BASE') ?: 'sudo -u clouduser php82 -d memory_limit=1024M '.$PATH_NEXTCLOUD.'/occ ';
+     // don't forget this one --. (if you don't run the script as the 'clouduser', see first comment at the top)
+     #$OCC_BASE       = 'sudo -u clouduser php81 -d memory_limit=1024M '.$PATH_NEXTCLOUD.'/occ ';
+     
+     // set $TEST to 0 for LIVE!!
+     // set $TEST to 1 for all data : NO db modifications, with file modifications/uploads/removal
+     // set $TEST to user name for single user (migration) test
+     // set $TEST to 2 for complete dry run
+     $TEST = getenv('TEST') ?: 2; //'admin';//'appdata_oczvcie123w4';
+     
+     // ONLY when migration is all done you can set this to 0 for the S3-consistency checks
+     $SET_MAINTENANCE = getenv('SET_MAINTENANCE') ?: 1; // only in $TEST=0 Nextcloud will be put into maintenance mode
+     
+     $SHOWINFO = getenv('SHOWINFO') ?: 1; // set to 0 to force much less info (while testing)
+     
+     $SQL_DUMP_USER = getenv('SQL_DUMP_USER') ?: ''; // leave both empty if nextcloud user has enough rights..
+     $SQL_DUMP_PASS = getenv('SQL_DUMP_PASS') ?: '';
+     
+     $CONFIG_OBJECTSTORE = getenv('CONFIG_OBJECTSTORE') ?: dirname(__FILE__).'/storage.config.php';
+     
+     # It is probably wise to set the two vars below to '1' once, let the 'Nextcloud' do some checking..
+     $DO_FILES_CLEAN = getenv('DO_FILES_CLEAN') ?: 0; // perform occ files:cleanup    | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
+     $DO_FILES_SCAN  = getenv('DO_FILES_SCAN') ?: 0; // perform occ files:scan --all | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
 
 ############################################################################ end config #
 
@@ -63,10 +64,24 @@ echo "\n".
      "\n#########################################################################################".
      "\nSetting up local migration to S3 (sync)...\n";
 
-// Autoload
-require_once(dirname(__FILE__).'/vendor/autoload.php');
+// Autoload composer from either vendor or 3rdparty folder
+if (file_exists(dirname(__FILE__).'/vendor/autoload.php')) {
+  echo "\nDEBUG: Loading Composer autoload from vendor folder";
+  require_once(dirname(__FILE__).'/vendor/autoload.php');
+} elseif (file_exists(dirname(__FILE__).'/3rdparty/autoload.php')) {
+  echo "\nDEBUG: Loading Composer autoload from 3rdparty folder";
+  require_once(dirname(__FILE__).'/3rdparty/autoload.php');
+} else {
+  echo "\nERROR: Composer autoload not found, run 'composer install' first!\n\n";
+  die;
+}
 
 echo "\nfirst load the nextcloud config...";
+if (!file_exists($PATH_NEXTCLOUD.'/config/config.php')) {
+    echo "\nERROR: config.php not found at ".$PATH_NEXTCLOUD.'/config/config.php';
+    echo " Initialize Nextcloud config first!\n\n";
+    exit(1);
+}
 include($PATH_NEXTCLOUD.'/config/config.php');
 if (!empty($CONFIG['objectstore'])) {
   if ($CONFIG_OBJECTSTORE == $PATH_NEXTCLOUD.'/config/config.php') {
