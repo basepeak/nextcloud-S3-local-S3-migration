@@ -1,0 +1,39 @@
+services:
+  db:
+    image: mariadb:10.11
+    restart: always
+    command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
+    volumes:
+      - db:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=
+      - MYSQL_RANDOM_ROOT_PASSWORD=1
+      - MYSQL_PASSWORD=nextcloud
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+
+  redis:
+    image: redis:alpine
+    restart: always
+
+  app:
+    image: 5894cebb0379  # Image ID of the docker build
+    restart: always
+    ports:
+      - 8080:80
+    depends_on:
+      - redis
+      - db
+    volumes:
+      - nextcloud:/var/www/html
+    environment:
+      - MYSQL_PASSWORD=nextcloud
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_HOST=db
+      - NEXTCLOUD_ADMIN_USER=nextcloudadmin
+      - NEXTCLOUD_ADMIN_PASSWORD=installnextcloud
+
+volumes:
+  nextcloud:
+  db:
