@@ -196,7 +196,17 @@ if (empty($TEST)) {
 }
 
 echo "\ndatabase backup...";
-if (!is_dir($PATH_BACKUP)) { echo "\$PATH_BACKUP folder does not exist\n"; die; }
+if (!is_dir($PATH_BACKUP)) {
+  if (mkdir($PATH_BACKUP, 0777, true)) {
+      echo "\nINFO: Directory $PATH_BACKUP created successfully.\n";
+  } else {
+      echo "\nERROR: Failed to create directory $PATH_BACKUP.\n";
+      echo "\nERROR: \$PATH_BACKUP folder does not exist\n"; die;
+  }
+} else {
+  echo "\nINFO: Directory $PATH_BACKUP already exists.\n";
+}
+if (!is_dir($PATH_BACKUP)) { echo "\nERROR\$PATH_BACKUP folder does not exist\n"; die; }
 
 $process = shell_exec('mysqldump --host='.$CONFIG['dbhost'].
                                ' --user='.(empty($SQL_DUMP_USER)?$CONFIG['dbuser']:$SQL_DUMP_USER).
