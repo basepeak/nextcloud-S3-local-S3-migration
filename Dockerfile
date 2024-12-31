@@ -24,8 +24,14 @@ RUN apk add --no-cache mariadb-client  # mysqldump
 RUN sed -i 's/^exec .*/exec ash/' /entrypoint.sh
 
 # Copy the PHP script into the container
-COPY localtos3.php /usr/src/nextcloud/
-COPY s3tolocal.php /usr/src/nextcloud/
+RUN mkdir -p /usr/src/nextcloud-s3-local-s3-migration-in-container
+COPY localtos3.php /usr/src/nextcloud-s3-local-s3-migration-in-container/
+COPY s3tolocal.php /usr/src/nextcloud-s3-local-s3-migration-in-container/
+
+# Deploy script to html folder
+# Why not to html directly? /var/www/html may got rsync if entrypoint.sh is set to install nextcloud on first run, and never rsync again if nextcloud is installed. To control container start behaviour simply from Dockerfile, inject the deploy script on every start using entrypoint hooks.
+COPY deploy_s3_script.sh /docker-entrypoint-hooks.d/before-starting/
+RUN chmod +x /docker-entrypoint-hooks.d/before-starting/deploy_s3_script.sh
 
 # Command to run the PHP script
 # ENTRYPOINT ["ash", "-c"]
