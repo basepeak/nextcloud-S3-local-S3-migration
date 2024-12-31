@@ -44,7 +44,7 @@ echo "\n########################################################################
      // set $TEST to 1 for all data : NO db modifications, with file modifications/uploads/removal
      // set $TEST to user name for single user (migration) test
      // set $TEST to 2 for complete dry run
-     $TEST = getenv('TEST') ?: 2; //'admin';//'appdata_oczvcie123w4';
+     $TEST = getenv('TEST') ?? 2; //'admin';//'appdata_oczvcie123w4';
      
      // ONLY when migration is all done you can set this to 0 for the S3-consistency checks
      $SET_MAINTENANCE = getenv('SET_MAINTENANCE') ?: 1; // only in $TEST=0 Nextcloud will be put into maintenance mode
