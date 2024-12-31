@@ -13,11 +13,14 @@
 
 # runuser -u clouduser -- composer require aws/aws-sdk-php
 use Aws\S3\S3Client;
+use Aws\S3\Exception\S3Exception;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception;
 
 # uncomment this for large file uploads (Amazon advises this voor 100Mb+ files)
 use Aws\S3\MultipartUploader;
+use Aws\S3\Exception\S3MultipartUploadException;
+use Aws\S3\Exception\MultipartUploadException;
 $MULTIPART['threshold'] = getenv('MULTIPART_THRESHOLD_MB') !== false ? getenv('MULTIPART_THRESHOLD_MB') : 500; # Megabytes
 $MULTIPART['retry']     = getenv('MULTIPART_RETRY') !== false ? getenv('MULTIPART_RETRY') : 0; # number of retry attempts (set to 0 for just one try)
 
@@ -908,7 +911,7 @@ function S3put($s3, $bucket, $vars = array() ) {
     } else {
       return 'ERROR: '.$vars['Key'].' was not uploaded';
     }
-  } catch (MultipartUploadException | S3Exception | Exception $e) {
+  } catch (S3MultipartUploadException | MultipartUploadException | S3Exception | Exception $e) {
     if (!empty($GLOBALS['MULTIPART']['retry'])) {
       if (!isset($GLOBALS['MULTIPART']['retry_count'])) { $GLOBALS['MULTIPART']['retry_count'] = 1; }
       else                                              { $GLOBALS['MULTIPART']['retry_count']++;   }
