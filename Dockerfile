@@ -3,7 +3,7 @@ FROM nextcloud:30.0-fpm-alpine
 # Set environment variables
 ENV PATH_BASE=/var/www \
     PATH_NEXTCLOUD=/var/www/html \
-    OCC_BASE='sudo -u 33 php -d memory_limit=1024M /var/www/html/occ' \
+    OCC_BASE='php -d memory_limit=1024M /var/www/html/occ ' \
     TEST=2 \
     SQL_DUMP_USER='' \
     SQL_DUMP_PASS='' \

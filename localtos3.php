@@ -827,7 +827,7 @@ function occ($OCC_BASE,$OCC_COMMAND) {
   $result = "\nset  ".$OCC_COMMAND.":\n";
 
   ob_start();
-  passthru($OCC_BASE . $OCC_COMMAND);
+  passthru($OCC_BASE . " " . $OCC_COMMAND);
   $process = ob_get_contents();
   ob_end_clean(); //Use this instead of ob_flush()
   
