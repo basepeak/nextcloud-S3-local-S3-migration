@@ -13,7 +13,9 @@ ENV PATH_BASE=/var/www \
     SHOWINFO=1 \
     CONFIG_OBJECTSTORE='/var/www/html/config/s3.config.php' \
     DO_FILES_CLEAN=0 \
-    DO_FILES_SCAN=0
+    DO_FILES_SCAN=0 \
+    MULTIPART_THRESHOLD_MB=100 \
+    MULTIPART_RETRY=3
 
 # Install any necessary dependencies (if required)
 RUN apk add --no-cache mariadb-client  # mysqldump

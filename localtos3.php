@@ -17,9 +17,9 @@ use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception;
 
 # uncomment this for large file uploads (Amazon advises this voor 100Mb+ files)
-#use Aws\S3\MultipartUploader;
-#$MULTIPART['threshold'] = 500; #Megabytes
-#$MULTIPART['retry']     =   0; #number of retry attempts (set to 0 for just one try)
+use Aws\S3\MultipartUploader;
+$MULTIPART['threshold'] = getenv('MULTIPART_THRESHOLD_MB') !== false ? getenv('MULTIPART_THRESHOLD_MB') : 500; # Megabytes
+$MULTIPART['retry']     = getenv('MULTIPART_RETRY') !== false ? getenv('MULTIPART_RETRY') : 0; # number of retry attempts (set to 0 for just one try)
 
 echo "\n#########################################################################################".
      "\n Migration tool for Nextcloud local to S3 container version 0.42".
