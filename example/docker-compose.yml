@@ -1,0 +1,48 @@
+services:
+  db:
+    image: mariadb:10.11
+    restart: always
+    command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
+    volumes:
+      - db:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=
+      - MYSQL_RANDOM_ROOT_PASSWORD=1
+      - MYSQL_PASSWORD=nextcloud
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+
+  redis:
+    image: redis:alpine
+    restart: always
+
+  app:
+    image: ghcr.io/timycyip/nextcloud-s3-local-s3-migration-container:0.42.2
+    restart: always
+    ports:
+      - 8080:80
+    depends_on:
+      - redis
+      - db
+    volumes:
+      - nextcloud:/var/www/html
+    environment:
+      - MYSQL_PASSWORD=nextcloud
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_HOST=db
+      - NEXTCLOUD_ADMIN_USER=nextcloudadmin
+      - NEXTCLOUD_ADMIN_PASSWORD=installnextcloud
+      - OBJECTSTORE_S3_BUCKET=<bucket-name-without-s3://>
+      - OBJECTSTORE_S3_AUTOCREATE=<true|false>
+      - OBJECTSTORE_S3_KEY=<access-key>
+      - OBJECTSTORE_S3_SECRET=<secret-key>
+      - OBJECTSTORE_S3_HOST=<s3-hostname>
+      - OBJECTSTORE_S3_PORT=<s3-port>
+      - OBJECTSTORE_S3_SSL=<true|false>
+      - OBJECTSTORE_S3_REGION=<s3-region-mandatory>
+      - OBJECTSTORE_S3_USEPATH_STYLE=<true|false>
+
+volumes:
+  nextcloud:
+  db:
