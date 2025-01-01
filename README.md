@@ -1,5 +1,168 @@
-# nextcloud S3 local S3 migration
-Script for migrating Nextcloud primary storage from S3 to local to S3 storage
+# nextcloud S3 local S3 migration in container
+Containerization of the project fork from [Script for migrating Nextcloud primary storage from S3 to local to S3 storage](https://github.com/mrAceT/nextcloud-S3-local-S3-migration)
+
+## 🏍️ Motivations
+[mrAceT](https://github.com/mrAceT/nextcloud-S3-local-S3-migration/commits?author=mrAceT) has created an excellent migration script in moving primary storage of Nextcloud from local to s3 (or in reverse), with sophisticated code in operating the database and file transfer, phased execution and interruption-resume tolerance.
+
+I would like to migrate from local storage to s3 compatible storage to enjoy the benefit of Cloud in terms of scalability and broad network access, and I found this lovely script. However, I run Nextcloud in docker and had a quite different environment than the original writer of the script, so I would like to contribute by containerizing it and share with those who also prefer to run the migration script, regardless of the environmental difference, in containers.
+
+## 📖 Usage
+Assume that:
+1. docker engine and docker compose were installed. 
+2. s3 bucket has been provisioned and permission properly set (You can test s3 connection using s3-browser)
+
+Steps:
+1. Configure a lab env for Nextcloud in docker-compose.yml
+
+| Environment Variable           | Default Value                |
+|--------------------------------|------------------------------|
+| MYSQL_PASSWORD                 | nextcloud                    |
+| MYSQL_DATABASE                 | nextcloud                    |
+| MYSQL_USER                     | nextcloud                    |
+| MYSQL_HOST                     | db                           |
+| NEXTCLOUD_ADMIN_USER           | nextcloudadmin               |
+| NEXTCLOUD_ADMIN_PASSWORD       | installnextcloud             |
+| OBJECTSTORE_S3_BUCKET          | <bucket-name-without-s3://>  |
+| OBJECTSTORE_S3_AUTOCREATE      | <true\|false>                |
+| OBJECTSTORE_S3_KEY             | <access-key>                 |
+| OBJECTSTORE_S3_SECRET          | <secret-key>                 |
+| OBJECTSTORE_S3_HOST            | <s3-hostname>                |
+| OBJECTSTORE_S3_PORT            | <s3-port>                    |
+| OBJECTSTORE_S3_SSL             | <true\|false>                |
+| OBJECTSTORE_S3_REGION          | <s3-region-mandatory>        |
+| OBJECTSTORE_S3_USEPATH_STYLE   | <true\|false>                |
+
+Then, run install a fresh Nextcloud
+```bash
+# Pull and start 
+cd ./example && sudo docker compose up -d db redis
+sudo docker compose up run --rm -ti app
+```
+
+2. By now the container should perform a fresh installation of Nextcloud and bring you into an ash shell.
+Play and run the script. 
+```bash
+TEST=2
+php localtos3.php
+
+TEST=test_username
+php localtos3.php
+```
+
+3. Configure the script using environment variables in docker compose / inside container ash shell
+
+| Environment Variable     | Default Value                            | Explanation                             |
+|--------------------------|------------------------------------------|-----------------------------------------|
+| PATH_BASE                | /var/www                                 | Path to the base of the main Nextcloud directory |
+| PATH_NEXTCLOUD           | /var/www/html                            | Path of the public Nextcloud directory   |
+| OCC_BASE                 | php -d memory_limit=1024M /var/www/html/occ | Allocate more memory to php             |
+| TEST                     | 2                                        | Start with 2 for complete dry run, then user_name for single user (migration) test, 1 for all data (preprocess): NO db modifications, with file modifications/uploads/removal, finally 0 for LIVE migration. |
+| SQL_DUMP_USER            | ''                                       | Leave both empty if Nextcloud user has enough rights. |
+| SQL_DUMP_PASS            | ''                                       |                                          |
+| PREVIEW_MAX_AGE          | 0                                        | Max age (days) of preview images (EXPERIMENTAL! 0 = no delete) |
+| PREVIEW_MAX_DEL          | 0.005                                    | Max amount of previews to delete at a time (when < 1 & > 0 => percentage!) |
+| SET_MAINTENANCE          | 1                                        |                                          |
+| SHOWINFO                 | 1                                        | Set to 0 to force much less info (while testing) |
+| CONFIG_OBJECTSTORE       | /var/www/html/config/s3.config.php       | Default s3 config file from Nextcloud container that reads from container env variable |
+| DO_FILES_CLEAN           | 0                                        | Perform occ files:cleanup (can take a while on large accounts, should not be necessary but cannot hurt, not working while in maintenance) |
+| DO_FILES_SCAN            | 0                                        | Perform occ files:scan --all (can take a while on large accounts, should not be necessary but cannot hurt, not working while in maintenance) |
+| MULTIPART_THRESHOLD_MB   | 100                                      | S3 multipart threshold in Megabytes      |
+| MULTIPART_RETRY          | 10                                       | Number of retry attempts (set to 0 for just one try) |
+
+
+4. Familiarization with the testing lab, create testing user, files, perform simulation of migration in small scale
+
+5. Switch to connect to production datasource. 
+
+Exit from the testing container after familiarization with the env
+```bash
+exit
+sudo docker compose down -d db redis
+
+# To remove everything from the lab
+# sudo docker compose down -v
+```
+
+Comment out env variables from docker compose to skip re-inialization of Nextcloud installation `NEXTCLOUD_ADMIN_USER`, `NEXTCLOUD_ADMIN_PASSWORD`
+
+| Environment Variable           | Default Value                |
+|--------------------------------|------------------------------|
+| # NEXTCLOUD_ADMIN_USER         | nextcloudadmin               |
+| # NEXTCLOUD_ADMIN_PASSWORD     | installnextcloud             |
+
+Adjust the docker volume of nextcloud to connect to your local storage (e.g. my_data volume / folder) of nextcloud.
+
+```yml
+  app:
+    image: ghcr.io/timycyip/nextcloud-s3-local-s3-migration-container:0.42.3
+    restart: always
+    ports:
+      - 8080:80
+    depends_on:
+      - redis
+      - db
+    volumes:
+      - nextcloud:/var/www/html
+      - mydata:/var/www/html/data
+      # - ./mydata:/var/www/html/data
+```
+
+Adjust the db connection in docker-compose.yml to your production nextcloud db. Remember to do backup before any actual migration. Test restore as well.
+
+```bash
+TEST=2
+php localtos3.php
+
+TEST=test_username
+php localtos3.php
+```
+
+Run nextcloud container connected to production db and local storage. 
+It took me 2 days to upload files to s3. The more user files uploaded to s3 in the preprocess (before TEST=0), the faster TEST=0 phase would be. 
+Be expect to watch, and resume if the upload / container process got interrupted. 
+
+In the final run (TEST=0), running the container as user www-data (uid: 82) is required to run php occ.
+```bash
+# Pull and start 
+cd ./example
+sudo docker compose up run -u 82 -ti app
+
+# Inside the container
+TEST=2
+php localtos3.php
+
+TEST=test_username_small
+php localtos3.php
+
+TEST=test_username_large1...3
+php localtos3.php
+
+TEST=1
+php localtos3.php
+
+TEST=0
+php localtos3.php
+```
+
+6. There is a bug 🐛 :
+* duplicated record are prevented by MySQL when replacing `home::<username>` with `object::user:<username>` in nextcloud db table `oc_storages`, as `object::user:<username>` already exists. At the moment the simplest method I could think of is to manually remove those records starting with `object::user:`.
+
+
+## 🎉 What's new
+### Version 0.42.3
+#### Containerization (localtos3.php & s3tolocal.php)
+* Containerized script, packaged with required php lib and runtime (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/170b3e01f66c0bff7a749890a2bca900669d2c28), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/85bcbdace7a9e306a3f9a1585d502495f5856b5d)
+* Decouple hard code variables to env variables, demonstrate how env variables can be set externally by docker-compose (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/f5500e487a9f3811c45ac1b37875003b189d554d), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/84169cdbe173da1a2b8ac48c35e56b5499731cb8), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/56f7e848b481dc9ced76ccab7ffad53515862eaf), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/71f2837dc3c547de01e843532faaab7f9d3bb417)
+* Reduce dependency requirement by replacing mysqli with Doctrine\DBAL (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/ff7dcaf4677c68eaae5b0e52544a88782df5d98e)
+* Include mysqldump dependency for sql backup (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/9b1516d1a10f9f7407fd130fd8c7190dfe109a44)
+
+### s3tolocal.php
+#### Script reliability enhancement
+* Autocreate sql backup folder (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/b30b65dc41ce31784f04ab39a064b4b3e8f6eeb1), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/a9ee334059af7476ad7f9c0c3cf5459f185337d7)
+* Improve occ command string to handle missing trailing space in env input (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/ecb5e87c5a894552d2e917f830a55a492670bb42)
+* Default s3 upload by multipart and enable retry to improve reliability (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/23cc9849ed80a57f316f33f50bcd3da4c204d784), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/0367724b97a269260667a303b2865e2048bc6512)
+
+######################## UPSTREAM ##########################
 
 # Nextcloud S3 to local to S3 storage migration script
 <h1 align="center">:cloud: to :floppy_disk: to :cloud:</h1>
