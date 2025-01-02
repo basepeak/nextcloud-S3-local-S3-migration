@@ -17,7 +17,7 @@ services:
     restart: always
 
   app:
-    image: ghcr.io/timycyip/nextcloud-s3-local-s3-migration-container:0.42.2
+    image: ghcr.io/timycyip/nextcloud-s3-local-s3-migration-container:0.42.4
     restart: always
     ports:
       - 8080:80
@@ -26,6 +26,8 @@ services:
       - db
     volumes:
       - nextcloud:/var/www/html
+      - data:/var/www/html/data
+      - backup:/var/www/bak
     environment:
       - MYSQL_PASSWORD=nextcloud
       - MYSQL_DATABASE=nextcloud
@@ -46,3 +48,5 @@ services:
 volumes:
   nextcloud:
   db:
+  data:
+  backup:
