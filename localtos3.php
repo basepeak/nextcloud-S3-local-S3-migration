@@ -222,15 +222,18 @@ if (!is_dir($PATH_BACKUP)) {
 }
 if (!is_dir($PATH_BACKUP)) { echo "\nERROR\$PATH_BACKUP folder does not exist\n"; die; }
 
+$timestamp = date('Ymd_Hi'); // Format: YYYYMMDD_HHMM
+$backupFile = $PATH_BACKUP . DIRECTORY_SEPARATOR . 'backup_' . $CONFIG['dbname'] . '_' . $timestamp . '.sql';
+
 $process = shell_exec('mysqldump --host='.$CONFIG['dbhost'].
                                ' --user='.(empty($SQL_DUMP_USER)?$CONFIG['dbuser']:$SQL_DUMP_USER).
                                ' --password='.escapeshellcmd( empty($SQL_DUMP_PASS)?$CONFIG['dbpassword']:$SQL_DUMP_PASS ).' '.$CONFIG['dbname'].
-                               ' > '.$PATH_BACKUP . DIRECTORY_SEPARATOR . 'backup.sql');
-if (strpos(' '.strtolower($process), 'error:') > 0) {
+                               ' > '. $backupFile);
+if ($process !== null && strpos(' '.strtolower($process), 'error:') > 0) {
   echo "sql dump error\n";
   die;
 } else {
-  echo "\n(to restore: mysql -u ".(empty($SQL_DUMP_USER)?$CONFIG['dbuser']:$SQL_DUMP_USER)." -p ".$CONFIG['dbname']." < backup.sql)\n";
+  echo "\n(to restore: mysql -u ".(empty($SQL_DUMP_USER)?$CONFIG['dbuser']:$SQL_DUMP_USER)." -p ".$CONFIG['dbname']." < $backupFile)\n";
 }
 
 echo "\nbackup config.php...";
