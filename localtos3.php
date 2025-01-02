@@ -734,6 +734,43 @@ if (empty($TEST)) {
   $dashLine = "\n".
               "\n#########################################################################################";
               
+  // Execute the query to find object storage conflicts
+  $objectStorageConflicts = $conn->fetchAllAssociative("
+      SELECT SUBSTRING_INDEX(home.id, 'home::', -1) AS id, 
+            home.numeric_id AS numeric_id_home, 
+            object.numeric_id AS numeric_id_object 
+      FROM oc_storages AS home 
+      JOIN oc_storages AS object 
+      ON SUBSTRING_INDEX(home.id, 'home::', -1) = SUBSTRING_INDEX(object.id, 'object::user:', -1) 
+      WHERE home.id LIKE 'home::%' 
+      AND object.id LIKE 'object::user:%'
+  ");
+
+  // Check if the result is not empty
+  if (!empty($objectStorageConflicts)) {
+    foreach ($objectStorageConflicts as $conflict) {
+        $numeric_id_home = $conflict['numeric_id_home'];
+        $numeric_id_object = $conflict['numeric_id_object'];
+
+        // Update the oc_filecache table to merge the storage id
+        $conn->executeQuery(
+            "UPDATE `oc_filecache` SET `storage` = ? WHERE `storage` = ?",
+            [$numeric_id_home, $numeric_id_object]
+        );
+
+        // Delete the object storage record
+        $conn->executeQuery(
+          "DELETE FROM `oc_storages` WHERE `id` = ?",
+          [$numeric_id_object]
+      );
+
+        echo "\nUpdated oc_filecache: storage from $numeric_id_object to $numeric_id_home for user " . $conflict['id'] . "\n";
+    }
+  } else {
+    echo "\nNo object storage conflicts found.\n";
+  }
+
+  // Replace the local with object storage id
   $conn->executeQuery("UPDATE `oc_storages` SET `id`=CONCAT('object::user:', SUBSTRING_INDEX(`oc_storages`.`id`,':',-1)) WHERE `oc_storages`.`id` LIKE 'home::%'");
   $UpdatesDone = $conn->executeQuery("SELECT ROW_COUNT()")->fetchOne();
   
