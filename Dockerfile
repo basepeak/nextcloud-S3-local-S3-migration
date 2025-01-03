@@ -1,4 +1,4 @@
-FROM nextcloud:30.0-fpm-alpine
+FROM nextcloud:production-fpm-alpine
 
 # Set environment variables
 ENV PATH_BASE=/var/www \
