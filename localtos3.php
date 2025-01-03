@@ -769,7 +769,7 @@ if (empty($TEST)) {
 
         // Delete the object storage record
         $conn->executeQuery(
-          "DELETE FROM `oc_storages` WHERE `id` = ?",
+          "DELETE FROM `oc_storages` WHERE `numeric_id` = ?",
           [$numeric_id_object]
       );
 
