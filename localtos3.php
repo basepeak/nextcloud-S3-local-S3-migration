@@ -755,6 +755,12 @@ if (empty($TEST)) {
         $numeric_id_home = $conflict['numeric_id_home'];
         $numeric_id_object = $conflict['numeric_id_object'];
 
+        // Delete object storage root path entry in `oc_filecache` which could cause duplication of fs_storage_path_hash key
+        $conn->executeQuery(
+            "DELETE FROM `oc_filecache` WHERE `storage` = ? AND `path` = ''",
+            [$numeric_id_object]
+        );
+
         // Update the oc_filecache table to merge the storage id
         $conn->executeQuery(
             "UPDATE `oc_filecache` SET `storage` = ? WHERE `storage` = ?",
