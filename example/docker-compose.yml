@@ -27,6 +27,7 @@ services:
     volumes:
       - nextcloud:/var/www/html
       - data:/var/www/html/data
+      - config:/var/www/html/config
       - backup:/var/www/bak
     environment:
       - MYSQL_PASSWORD=nextcloud
@@ -47,6 +48,7 @@ services:
 
 volumes:
   nextcloud:
-  db:
-  data:
   backup:
+  config:
+  data:
+  db:

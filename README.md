@@ -103,8 +103,23 @@ Adjust the docker volume of nextcloud to connect to your local storage (e.g. my_
       - db
     volumes:
       - nextcloud:/var/www/html
-      - mydata:/var/www/html/data
-      # - ./mydata:/var/www/html/data
+      - config:/var/www/html/config
+      - data:/var/www/html/data
+      # - ./data:/var/www/html/data
+```
+
+
+Make sure the volume mount are properly set with permission. For example, the html root folder, `./apps`, `./config`, `./data`, `../bak` folders are are owned by www-data (uid: 82). Run command accordingly.
+
+```bash
+sudo docker compose up run -ti app
+cd /var/www/html/
+ls -l
+chown -R www-data:www-data ./apps
+chown -R www-data:www-data ./config
+chown -R www-data:www-data ./data
+chown -R www-data:www-data ./bak
+exit
 ```
 
 Adjust the db connection in docker-compose.yml to your production nextcloud db. Remember to do backup before any actual migration. Test restore as well.
