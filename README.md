@@ -103,8 +103,23 @@ Adjust the docker volume of nextcloud to connect to your local storage (e.g. my_
       - db
     volumes:
       - nextcloud:/var/www/html
-      - mydata:/var/www/html/data
-      # - ./mydata:/var/www/html/data
+      - config:/var/www/html/config
+      - data:/var/www/html/data
+      # - ./data:/var/www/html/data
+```
+
+
+Make sure the volume mount are properly set with permission. For example, the html root folder, `./apps`, `./config`, `./data`, `../bak` folders are are owned by www-data (uid: 82). Run command accordingly.
+
+```bash
+sudo docker compose up run -ti app
+cd /var/www/html/
+ls -l
+chown -R www-data:www-data ./apps
+chown -R www-data:www-data ./config
+chown -R www-data:www-data ./data
+chown -R www-data:www-data ./bak
+exit
 ```
 
 Adjust the db connection in docker-compose.yml to your production nextcloud db. Remember to do backup before any actual migration. Test restore as well.
@@ -120,6 +135,11 @@ php localtos3.php
 Run nextcloud container connected to production db and local storage. 
 It took me 2 days to upload files to s3. The more user files uploaded to s3 in the preprocess (before TEST=0), the faster TEST=0 phase would be. 
 Be expect to watch, and resume if the upload / container process got interrupted. 
+
+Find the storage id of the object storage from warning similar to below, delete records with the particular storage id in `oc_filecache`.
+```
+WARNING: if this is for a full migration remove all data with `storage` = ?? in your `oc_filecache` !!!!
+```
 
 In the final run (TEST=0), running the container as user www-data (uid: 82) is required to run php occ.
 ```bash
@@ -149,18 +169,54 @@ php localtos3.php
 
 
 ## 🎉 What's new
+### Version 0.42.4
+#### Script improvement (s3tolocal.php)
+* Prevent sql execution failure in duplicating oc_storage id and db key fs_storage_path_hash clashes.
+  - 94b208d3de14a81334525dfd27ad7392edf16381
+  - 4d0721d764004a8d451cfdda7c7f85621b7850fa
+  - ff6b1dac9ed2273355077ff3fbb5576e5598f755
+
+#### Workflow Update (README.md)
+* Remind that oc_filecache has to be manually cleared before actual migration (TEST=0)
+  - dfc9b9c389f6feedc34a2e2f490322cacef175d4
+* Configure folder permission by instructions and update examples
+  - 9b408e666808cec1549acb6f19b136df3909f027
+
+#### Backup Management (README.md)
+* Enhance backup file management by naming backup with timestamp.
+  - d5edda631101089310e74bc2164e525849a2b4d7
+* Persists backup data with docker volume.
+  - ed09556dac393cad0cfe16915a3974667dfa6a06
+
+#### Containerization (Dockerfile)
+* Keep base nextcloud container up-to-date with production tag
+  - 1eea81ab751934f6ecc4616abd65f12586a415fe
+
 ### Version 0.42.3
 #### Containerization (localtos3.php & s3tolocal.php)
-* Containerized script, packaged with required php lib and runtime (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/170b3e01f66c0bff7a749890a2bca900669d2c28), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/85bcbdace7a9e306a3f9a1585d502495f5856b5d)
-* Decouple hard code variables to env variables, demonstrate how env variables can be set externally by docker-compose (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/f5500e487a9f3811c45ac1b37875003b189d554d), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/84169cdbe173da1a2b8ac48c35e56b5499731cb8), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/56f7e848b481dc9ced76ccab7ffad53515862eaf), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/71f2837dc3c547de01e843532faaab7f9d3bb417)
-* Reduce dependency requirement by replacing mysqli with Doctrine\DBAL (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/ff7dcaf4677c68eaae5b0e52544a88782df5d98e)
-* Include mysqldump dependency for sql backup (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/9b1516d1a10f9f7407fd130fd8c7190dfe109a44)
+* Containerized script, packaged with required php lib and runtime 
+  - 170b3e01f66c0bff7a749890a2bca900669d2c28
+  - 85bcbdace7a9e306a3f9a1585d502495f5856b5d
+* Decouple hard code variables to env variables, demonstrate how env variables can be set externally by docker-compose 
+  - f5500e487a9f3811c45ac1b37875003b189d554d
+  - 84169cdbe173da1a2b8ac48c35e56b5499731cb8
+  - 56f7e848b481dc9ced76ccab7ffad53515862eaf
+  - 71f2837dc3c547de01e843532faaab7f9d3bb417
+* Reduce dependency requirement by replacing mysqli with Doctrine\DBAL 
+  - ff7dcaf4677c68eaae5b0e52544a88782df5d98e
+* Include mysqldump dependency for sql backup
+  - 9b1516d1a10f9f7407fd130fd8c7190dfe109a44
 
 ### s3tolocal.php
 #### Script reliability enhancement
-* Autocreate sql backup folder (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/b30b65dc41ce31784f04ab39a064b4b3e8f6eeb1), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/a9ee334059af7476ad7f9c0c3cf5459f185337d7)
-* Improve occ command string to handle missing trailing space in env input (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/ecb5e87c5a894552d2e917f830a55a492670bb42)
-* Default s3 upload by multipart and enable retry to improve reliability (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/23cc9849ed80a57f316f33f50bcd3da4c204d784), (https://github.com/timycyip/nextcloud-S3-local-S3-migration-in-container/commit/0367724b97a269260667a303b2865e2048bc6512)
+* Autocreate sql backup folder
+  - b30b65dc41ce31784f04ab39a064b4b3e8f6eeb1
+  - a9ee334059af7476ad7f9c0c3cf5459f185337d7
+* Improve occ command string to handle missing trailing space in env input
+  - ecb5e87c5a894552d2e917f830a55a492670bb42
+* Default s3 upload by multipart and enable retry to improve reliability
+  - 23cc9849ed80a57f316f33f50bcd3da4c204d784
+  - 0367724b97a269260667a303b2865e2048bc6512
 
 ######################## UPSTREAM ##########################
 

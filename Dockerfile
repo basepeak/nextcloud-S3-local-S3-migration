@@ -1,4 +1,4 @@
-FROM nextcloud:30.0-fpm-alpine
+FROM nextcloud:production-fpm-alpine
 
 # Set environment variables
 ENV PATH_BASE=/var/www \
@@ -17,11 +17,17 @@ ENV PATH_BASE=/var/www \
     MULTIPART_THRESHOLD_MB=100 \
     MULTIPART_RETRY=10
 
-# Install any necessary dependencies (if required)
-RUN apk add --no-cache mariadb-client  # mysqldump
+# Persists backup data to host
+VOLUME ["/var/www/bak"]
+RUN mkdir -p /var/www/bak && \
+    chown -R www-data:www-data /var/www/bak && \
+    chmod -R 777 /var/www/bak
 
 # Blocking entrypoint script to continue with the storage migration script
 RUN sed -i 's/^exec .*/exec ash/' /entrypoint.sh
+
+# Install any necessary dependencies (if required)
+RUN apk add --no-cache mariadb-client  # mysqldump
 
 # Deploy script to html folder
 # Why not to html directly? /var/www/html may got rsync if entrypoint.sh is set to install nextcloud on first run, and never rsync again if nextcloud is installed. To control container start behaviour simply from Dockerfile, inject the deploy script on every start using entrypoint hooks.
