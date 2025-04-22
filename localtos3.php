@@ -622,6 +622,8 @@ if (!$result = $conn->executeQuery("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`
   
   $showinfo = !empty($TEST);
   $showinfo = 0;
+
+  $non_existing_files = [];
   
   $LOCAL_ADDED = [0,0];
     while ($row = $result->fetchAssociative()) {
@@ -669,6 +671,7 @@ if (!$result = $conn->executeQuery("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`
           $LOCAL_ADDED[1]+=$row['size'];
         } else {
           echo "\n".$path." (id:".$row['fileid'].") DOES NOT EXIST?!\n";
+          $non_existing_files[] = $row['fileid'];
           if (empty($TEST)) {
             $conn->executeQuery("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ?", [$row['fileid']]);
             echo "\t".'removed ($TEST = 0)'."\n";
@@ -896,6 +899,7 @@ if (empty($TEST)) {
   
 } else {
   echo "\n\ndone testing..\n";
+  echo "\nNon existing files count: ".count($non_existing_files)."\n";
 }
 
 #########################################################################################
