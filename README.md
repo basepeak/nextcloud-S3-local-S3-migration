@@ -1,17 +1,22 @@
 # nextcloud S3 local S3 migration in container
+
 Containerization of the project fork from [Script for migrating Nextcloud primary storage from S3 to local to S3 storage](https://github.com/mrAceT/nextcloud-S3-local-S3-migration)
 
 ## 🏍️ Motivations
+
 [mrAceT](https://github.com/mrAceT/nextcloud-S3-local-S3-migration/commits?author=mrAceT) has created an excellent migration script in moving primary storage of Nextcloud from local to s3 (or in reverse), with sophisticated code in operating the database and file transfer, phased execution and interruption-resume tolerance.
 
 I would like to migrate from local storage to s3 compatible storage to enjoy the benefit of Cloud in terms of scalability and broad network access, and I found this lovely script. However, I run Nextcloud in docker and had a quite different environment than the original writer of the script, so I would like to contribute by containerizing it and share with those who also prefer to run the migration script, regardless of the environmental difference, in containers.
 
 ## 📖 Usage
+
 Assume that:
-1. docker engine and docker compose were installed. 
+
+1. docker engine and docker compose were installed.
 2. s3 bucket has been provisioned and permission properly set (You can test s3 connection using s3-browser)
 
 Steps:
+
 1. Configure a lab env for Nextcloud in docker-compose.yml
 
 | Environment Variable           | Default Value                |
@@ -33,6 +38,7 @@ Steps:
 | OBJECTSTORE_S3_USEPATH_STYLE   | <true\|false>                |
 
 Then, run install a fresh Nextcloud
+
 ```bash
 # Pull and start 
 cd ./example && sudo docker compose up -d db redis
@@ -40,7 +46,8 @@ sudo docker compose up run --rm -ti app
 ```
 
 2. By now the container should perform a fresh installation of Nextcloud and bring you into an ash shell.
-Play and run the script. 
+Play and run the script.
+
 ```bash
 TEST=2
 php localtos3.php
@@ -69,12 +76,12 @@ php localtos3.php
 | MULTIPART_THRESHOLD_MB   | 100                                      | S3 multipart threshold in Megabytes      |
 | MULTIPART_RETRY          | 10                                       | Number of retry attempts (set to 0 for just one try) |
 
-
 4. Familiarization with the testing lab, create testing user, files, perform simulation of migration in small scale
 
-5. Switch to connect to production datasource. 
+5. Switch to connect to production datasource.
 
 Exit from the testing container after familiarization with the env
+
 ```bash
 exit
 sudo docker compose down -d db redis
@@ -108,7 +115,6 @@ Adjust the docker volume of nextcloud to connect to your local storage (e.g. my_
       # - ./data:/var/www/html/data
 ```
 
-
 Make sure the volume mount are properly set with permission. For example, the html root folder, `./apps`, `./config`, `./data`, `../bak` folders are are owned by www-data (uid: 82). Run command accordingly.
 
 ```bash
@@ -132,16 +138,18 @@ TEST=test_username
 php localtos3.php
 ```
 
-Run nextcloud container connected to production db and local storage. 
-It took me 2 days to upload files to s3. The more user files uploaded to s3 in the preprocess (before TEST=0), the faster TEST=0 phase would be. 
-Be expect to watch, and resume if the upload / container process got interrupted. 
+Run nextcloud container connected to production db and local storage.
+It took me 2 days to upload files to s3. The more user files uploaded to s3 in the preprocess (before TEST=0), the faster TEST=0 phase would be.
+Be expect to watch, and resume if the upload / container process got interrupted.
 
 Find the storage id of the object storage from warning similar to below, delete records with the particular storage id in `oc_filecache`.
+
 ```
 WARNING: if this is for a full migration remove all data with `storage` = ?? in your `oc_filecache` !!!!
 ```
 
 In the final run (TEST=0), running the container as user www-data (uid: 82) is required to run php occ.
+
 ```bash
 # Pull and start 
 cd ./example
@@ -165,70 +173,84 @@ php localtos3.php
 ```
 
 6. There is a bug 🐛 :
+
 * duplicated record are prevented by MySQL when replacing `home::<username>` with `object::user:<username>` in nextcloud db table `oc_storages`, as `object::user:<username>` already exists. At the moment the simplest method I could think of is to manually remove those records starting with `object::user:`.
 
-
 ## 🎉 What's new
+
 ### Version 0.42.4
+
 #### Script improvement (s3tolocal.php)
+
 * Prevent sql execution failure in duplicating oc_storage id and db key fs_storage_path_hash clashes.
-  - 94b208d3de14a81334525dfd27ad7392edf16381
-  - 4d0721d764004a8d451cfdda7c7f85621b7850fa
-  - ff6b1dac9ed2273355077ff3fbb5576e5598f755
+  * 94b208d3de14a81334525dfd27ad7392edf16381
+  * 4d0721d764004a8d451cfdda7c7f85621b7850fa
+  * ff6b1dac9ed2273355077ff3fbb5576e5598f755
 
 #### Workflow Update (README.md)
+
 * Remind that oc_filecache has to be manually cleared before actual migration (TEST=0)
-  - dfc9b9c389f6feedc34a2e2f490322cacef175d4
+  * dfc9b9c389f6feedc34a2e2f490322cacef175d4
 * Configure folder permission by instructions and update examples
-  - 9b408e666808cec1549acb6f19b136df3909f027
+  * 9b408e666808cec1549acb6f19b136df3909f027
 
 #### Backup Management (README.md)
+
 * Enhance backup file management by naming backup with timestamp.
-  - d5edda631101089310e74bc2164e525849a2b4d7
+  * d5edda631101089310e74bc2164e525849a2b4d7
 * Persists backup data with docker volume.
-  - ed09556dac393cad0cfe16915a3974667dfa6a06
+  * ed09556dac393cad0cfe16915a3974667dfa6a06
 
 #### Containerization (Dockerfile)
+
 * Keep base nextcloud container up-to-date with production tag
-  - 1eea81ab751934f6ecc4616abd65f12586a415fe
+  * 1eea81ab751934f6ecc4616abd65f12586a415fe
 
 ### Version 0.42.3
+
 #### Containerization (localtos3.php & s3tolocal.php)
-* Containerized script, packaged with required php lib and runtime 
-  - 170b3e01f66c0bff7a749890a2bca900669d2c28
-  - 85bcbdace7a9e306a3f9a1585d502495f5856b5d
-* Decouple hard code variables to env variables, demonstrate how env variables can be set externally by docker-compose 
-  - f5500e487a9f3811c45ac1b37875003b189d554d
-  - 84169cdbe173da1a2b8ac48c35e56b5499731cb8
-  - 56f7e848b481dc9ced76ccab7ffad53515862eaf
-  - 71f2837dc3c547de01e843532faaab7f9d3bb417
-* Reduce dependency requirement by replacing mysqli with Doctrine\DBAL 
-  - ff7dcaf4677c68eaae5b0e52544a88782df5d98e
+
+* Containerized script, packaged with required php lib and runtime
+  * 170b3e01f66c0bff7a749890a2bca900669d2c28
+  * 85bcbdace7a9e306a3f9a1585d502495f5856b5d
+* Decouple hard code variables to env variables, demonstrate how env variables can be set externally by docker-compose
+  * f5500e487a9f3811c45ac1b37875003b189d554d
+  * 84169cdbe173da1a2b8ac48c35e56b5499731cb8
+  * 56f7e848b481dc9ced76ccab7ffad53515862eaf
+  * 71f2837dc3c547de01e843532faaab7f9d3bb417
+* Reduce dependency requirement by replacing mysqli with Doctrine\DBAL
+  * ff7dcaf4677c68eaae5b0e52544a88782df5d98e
 * Include mysqldump dependency for sql backup
-  - 9b1516d1a10f9f7407fd130fd8c7190dfe109a44
+  * 9b1516d1a10f9f7407fd130fd8c7190dfe109a44
 
 ### s3tolocal.php
+
 #### Script reliability enhancement
+
 * Autocreate sql backup folder
-  - b30b65dc41ce31784f04ab39a064b4b3e8f6eeb1
-  - a9ee334059af7476ad7f9c0c3cf5459f185337d7
+  * b30b65dc41ce31784f04ab39a064b4b3e8f6eeb1
+  * a9ee334059af7476ad7f9c0c3cf5459f185337d7
 * Improve occ command string to handle missing trailing space in env input
-  - ecb5e87c5a894552d2e917f830a55a492670bb42
+  * ecb5e87c5a894552d2e917f830a55a492670bb42
 * Default s3 upload by multipart and enable retry to improve reliability
-  - 23cc9849ed80a57f316f33f50bcd3da4c204d784
-  - 0367724b97a269260667a303b2865e2048bc6512
+  * 23cc9849ed80a57f316f33f50bcd3da4c204d784
+  * 0367724b97a269260667a303b2865e2048bc6512
 
 ######################## UPSTREAM ##########################
 
 # Nextcloud S3 to local to S3 storage migration script
+
 <h1 align="center">:cloud: to :floppy_disk: to :cloud:</h1>
 
 ## S3 Best practice: start clean
+
 It is always best to start with the way you want to go. [Nextcloud](https://nextcloud.com/) default for the primary storage is 'local'.
 To start out with 'S3' from the start these are the steps I took:
+
 1. download [setup-nextcloud.php](https://github.com/nextcloud/web-installer/blob/master/setup-nextcloud.php)
 2. upload the file and execute it (for current folder use . )
 3. **before** step 2: go to folder'config' and add file storage.config.php with
+
 ```<?php
 $CONFIG = array (
   'objectstore' => array(
@@ -249,10 +271,12 @@ $CONFIG = array (
   ),
 );
 ```
+
 4. click 'next'
 5. follow the instructions..
 
-# A friendly note before you start migrating..
+# A friendly note before you start migrating
+
 Officially it is not supported to change the primary storage in Nextcloud.
 However, it's very well possible and these unofficial scripts will help you in doing so.
 
@@ -265,6 +289,7 @@ In theory nothing much could go wrong, as the script does not remove your local/
 <p align="center">:warning: <strong>Use at your own risk!</strong> :warning:</p>
 
 ## S3 to local
+
 It will transfer files from **S3** based primary storage to a **local** primary storage.
 
 The basics were inspired upon the work of [lukasmu](https://github.com/lukasmu/nextcloud-s3-to-disk-migration/).
@@ -288,27 +313,29 @@ If everything worked you might want to delete the backup folder and S3 instance 
 Also you probably want to delete this script after running it.
 
 ### S3 to local version history
+
 v0.34 Read config bucket_endpoint & use_path_style_endpoint\
 v0.33 Added support for optional ssl and port for S3 connection\
 v0.32 Set 'mount_provider_class' and add option to chown files if clouduser has no command line rights\
 v0.31 Added endpoint path style option\
 v0.30 first github release
 
-:warning: check https://github.com/mrAceT/nextcloud-S3-local-S3-migration/issues/11 if you need the option stated in v0.32 **work in progress..**
+:warning: check <https://github.com/mrAceT/nextcloud-S3-local-S3-migration/issues/11> if you need the option stated in v0.32 **work in progress..**
 
 ## local to S3
-It will transfer files from **local** based primary storage to a **S3** primary storage.
+
+Transfer files from **local** based primary storage to a **S3** primary storage.
 
 The basics were inspired upon the script s3tolocal.php (mentioned above), but there are **a lot** of differences..
 
 Before you start, it is probably wise to set $DO_FILES_CLEAN (occ files:cleanup)
 and $DO_FILES_SCAN (occ files:scan --all) to '1' once, let the 'Nextcloud' do some checking.. then you'll start out as clean as possible
 
-1. the only 'external thing' you need is 'aws/aws-sdk-php' (runuser -u clouduser -- composer require aws/aws-sdk-php)
-2. place 'storage.config.php' in the same folder as localtos3.php (and set your S3 credentials!)
-3. set & check all the config variables in the beginning of the script!
+1. Get localtos3.php and composer.json and composer.lock to a newly created folder in the container, e.g. /var/www/migrate
+2. place `storage.config.php` in the same folder as localtos3.php (and fill it with your S3 config/credentials!)
+3. set & check all the config environment variables in the beginning of the script!
 4. start with the highest $TEST => 2 (complete dry run, just checks en dummy uploads etc. NO database changes what so ever!)
-5. set $TEST to a 'small test user", upload the data to S3 for only that user (NO database changes what so ever!)
+5. set $TEST to a "small test user", upload the data to S3 for only that user (NO database changes what so ever!)
 6. set $TEST to 1 and run the script yet again, upload (**and check**) all the data to S3 (NO database changes what so ever!)
 7. set $TEST to 0 and run the script again (this is LIVE, nextcloud will be set into maintenance:mode --on while working ! **database changes!**)
 
@@ -324,27 +351,31 @@ If everything worked you might want to delete the data in data folder.
 Also you probably want to delete this script (and the 'storage.config.php') after running it.
 If all went as it should the config data in 'storage.config.php' is included in the 'config/config.php'. Then the 'storage.config.php' can also be removed from your config folder (no sense in having a double config)
 
-## S3 sanity check!
+## S3 sanity check
+
 When you
+
 1. have S3 as your primary storage
 2. set $TEST to 0
 3. **optionally** set $SET_MAINTENANCE to 0
 4. (have set/checked all the other variables..)
 
 Then the script 'localtos3.php' will:
-- look for entries in S3 and not in the database and vice versa **and remove them**.
+
+* look for entries in S3 and not in the database and vice versa **and remove them**.
 This can happen sometimes upon removing an account, preview files might not get removed.. stuff like that..
 
-- check for canceled uploads.
+* check for canceled uploads.
 Inspired upon [otherguy/nextcloud-cleanup](https://github.com/otherguy/nextcloud-cleanup/blob/main/clean.php). I have not had this problem, so can not test.. => check only!
 
-- preview cleanup.
+* preview cleanup.
 Removes previews of files that no longer exist.
 There is some initial work for clearing previews.. that is a work in progress, use at your own risc!
 
 The script will do the "sanity check" when migrating also (we want a good and clean migrition, won't we? ;)
 
 ### local to S3 version history
+
 v0.41 Read config bucket_endpoint & use_path_style_endpoint\
 v0.40 Added support for customer provided encryption keys (SSE-C)
 v0.39 Added support for optional ssl and port for S3 connection\
@@ -357,16 +388,17 @@ v0.33 some improvements on 'preview management'\
 v0.32 more (size) info + added check for canceled uploads\
 v0.31 first github release
 
-# I give to you, you..
+# I give to you, you
 
 I built this to be able to migrate if the one or the other is needed for what ever reason I could have in the future.
 You might have that same reason, so here it is!
-**Like the work?** You'll be surprised how much time goes into things like this.. 
+**Like the work?** You'll be surprised how much time goes into things like this..
 
 Be my hero, think about the time this script saved you, and (offcourse) how happy you are now that you migrated this smoothly.
 Support my work, buy me a cup of coffee, give what its worth to you, or give me half the time this script saved you ;)
-- [donate with ko-fi](https://ko-fi.com/mrAceT)
-- [donate with paypal](https://www.paypal.com/donate?hosted_button_id=W52D2EYLREJU4)
+
+* [donate with ko-fi](https://ko-fi.com/mrAceT)
+* [donate with paypal](https://www.paypal.com/donate?hosted_button_id=W52D2EYLREJU4)
 
 ## Contributing
 
