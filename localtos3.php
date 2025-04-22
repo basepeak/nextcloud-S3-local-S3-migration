@@ -53,7 +53,7 @@ $OCC_BASE       = getenv('OCC_BASE') ?: 'php -d memory_limit=2048M '.$PATH_NEXTC
 // set $TEST to 1 for all data : NO db modifications, with file modifications/uploads/removal
 // set $TEST to user name for single user (migration) test
 // set $TEST to 2 for complete dry run
-$TEST = getenv('TEST') ?? 2; //'admin';//'appdata_oczvcie123w4';
+$TEST = getenv('TEST') ?: 2; //'admin';//'appdata_oczvcie123w4';
 
 // ONLY when migration is all done you can set this to 0 for the S3-consistency checks
 $SET_MAINTENANCE = getenv('SET_MAINTENANCE') ?: 1; // only in $TEST=0 Nextcloud will be put into maintenance mode
@@ -66,7 +66,7 @@ $SQL_DUMP_PASS = getenv('SQL_DUMP_PASS') ?: '';
 $CONFIG_OBJECTSTORE = getenv('CONFIG_OBJECTSTORE') ?: dirname(__FILE__).'/storage.config.php';
 
 # It is probably wise to set the two vars below to '1' once, let the 'Nextcloud' do some checking..
-$DO_FILES_CLEAN = getenv('DO_FILES_CLEAN') ?: 0; // perform occ files:cleanup    | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
+$DO_FILES_CLEAN = getenv('DO_FILES_CLEAN') ?: 1; // perform occ files:cleanup    | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
 $DO_FILES_SCAN  = getenv('DO_FILES_SCAN') ?: 0; // perform occ files:scan --all | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
 
 ############################################################################ end config #
@@ -102,7 +102,7 @@ if (!empty($CONFIG['objectstore'])) {
   }
   $CONFIG_OBJECTSTORE = ''; //no copy!
 } else {
-  echo "\nS3 NOT configured in config.php, using \$CONFIG_OBJECTSTORE";
+  echo "\nS3 NOT configured in config.php, using \$CONFIG_OBJECTSTORE=$CONFIG_OBJECTSTORE";
   if (is_string($CONFIG_OBJECTSTORE) && file_exists($CONFIG_OBJECTSTORE)) {
     $CONFIG_MERGE = $CONFIG;
     include($CONFIG_OBJECTSTORE);
@@ -147,7 +147,7 @@ if ($result->rowCount() > 1) {
     echo "\nFOUND 'local::$PATH_DATA', good. ";
     $row = $result->fetchAssociative();
     $LOCAL_STORE_ID = $row['numeric_id']; // for creative rename command..
-    echo "\nThe local store  id is:$LOCAL_STORE_ID";
+    echo "\nThe local store id is: <$LOCAL_STORE_ID>";
 } else {
     echo "\nWARNING: no 'local::$PATH_DATA' found, therefor no sync local data > S3!\n";
 }
@@ -510,7 +510,7 @@ else {
             if ($row['storage_mtime'] < filemtime($path) ) {
               if ($showinfo) { echo $infoLine."\nID:".$object['Key']."\ton S3, but is older then local, upload..."; }
               if (!empty($TEST) && $TEST == 2) {
-                echo ' not uploaded ($TEST = 2)';
+                echo ' not uploaded ($TEST = 2)\n';
               } else {
                 $putData = [
                   'Key' => 'urn:oid:'.$row['fileid'],
