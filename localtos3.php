@@ -53,7 +53,7 @@ $OCC_BASE       = getenv('OCC_BASE') ?: 'php -d memory_limit=2048M '.$PATH_NEXTC
 // set $TEST to 1 for all data : NO db modifications, with file modifications/uploads/removal
 // set $TEST to user name for single user (migration) test
 // set $TEST to 2 for complete dry run
-$TEST = getenv('TEST') ?: 2; //'admin';//'appdata_oczvcie123w4';
+$TEST = getenv('TEST') ?? 2; //'admin';//'appdata_oczvcie123w4';
 
 // ONLY when migration is all done you can set this to 0 for the S3-consistency checks
 $SET_MAINTENANCE = getenv('SET_MAINTENANCE') ?: 1; // only in $TEST=0 Nextcloud will be put into maintenance mode
@@ -215,13 +215,12 @@ if (empty($TEST)) {
   echo "\n\nNOTE: In TEST-mode, will not enter maintenance mode";
 }
 
-echo "\ndatabase backup...";
 if (!is_dir($PATH_BACKUP)) {
   if (mkdir($PATH_BACKUP, 0777, true)) {
-      echo "\nINFO: Directory $PATH_BACKUP created successfully.\n";
+    echo "\nINFO: Directory $PATH_BACKUP created successfully.\n";
   } else {
-      echo "\nERROR: Failed to create directory $PATH_BACKUP.\n";
-      echo "\nERROR: \$PATH_BACKUP folder does not exist\n"; die;
+    echo "\nERROR: Failed to create directory $PATH_BACKUP.\n";
+    echo "\nERROR: \$PATH_BACKUP folder does not exist\n"; die;
   }
 } else {
   echo "\nINFO: Directory $PATH_BACKUP already exists.\n";
@@ -231,15 +230,38 @@ if (!is_dir($PATH_BACKUP)) { echo "\nERROR\$PATH_BACKUP folder does not exist\n"
 $timestamp = date('Ymd_Hi'); // Format: YYYYMMDD_HHMM
 $backupFile = $PATH_BACKUP . DIRECTORY_SEPARATOR . 'backup_' . $CONFIG['dbname'] . '_' . $timestamp . '.sql';
 
-$process = shell_exec('mysqldump --host='.$CONFIG['dbhost'].
-                               ' --user='.(empty($SQL_DUMP_USER)?$CONFIG['dbuser']:$SQL_DUMP_USER).
-                               ' --password='.escapeshellcmd( empty($SQL_DUMP_PASS)?$CONFIG['dbpassword']:$SQL_DUMP_PASS ).' '.$CONFIG['dbname'].
-                               ' > '. $backupFile);
-if ($process !== null && strpos(' '.strtolower($process), 'error:') > 0) {
-  echo "sql dump error\n";
-  die;
+// Check if mysqldump is available
+echo "\ndatabase backup...";
+exec('which mysqldump', $output, $return_var);
+if ($return_var !== 0) {
+    echo "Warning: 'mysqldump' command not found on the system.\n";
+    echo "Do you want to continue anyway (without creating a SQL dump)? (y/n): ";
+    $handle = fopen("php://stdin", "r");
+    $line = fgets($handle);
+    if (strtolower(trim($line)) !== 'y') {
+        echo "Aborted by user.\n";
+        exit(1);
+    }
+    echo "Continuing without mysqldump...\n";
 } else {
-  echo "\n(to restore: mysql -u ".(empty($SQL_DUMP_USER)?$CONFIG['dbuser']:$SQL_DUMP_USER)." -p ".$CONFIG['dbname']." < $backupFile)\n";
+    // Prepare the mysqldump command
+    $command = 'mysqldump --host=' . $CONFIG['dbhost'] .
+               ' --user=' . (empty($SQL_DUMP_USER) ? $CONFIG['dbuser'] : $SQL_DUMP_USER) .
+               ' --password=' . escapeshellcmd(empty($SQL_DUMP_PASS) ? $CONFIG['dbpassword'] : $SQL_DUMP_PASS) .
+               ' ' . $CONFIG['dbname'] .
+               ' > ' . $backupFile;
+
+    // Run the command
+    $process = shell_exec($command);
+
+    // Check for error output
+    if ($process !== null && strpos(strtolower($process), 'error:') !== false) {
+        echo "SQL dump error\n";
+        die;
+    } else {
+        echo "\n(to restore: mysql -u " . (empty($SQL_DUMP_USER) ? $CONFIG['dbuser'] : $SQL_DUMP_USER) .
+             " -p " . $CONFIG['dbname'] . " < $backupFile)\n";
+    }
 }
 
 echo "\nbackup config.php...";
