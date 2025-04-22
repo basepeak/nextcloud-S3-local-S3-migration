@@ -1,0 +1,17 @@
+{
+    "name": "basepeak/nextcloud-s3-local-s3-migration",
+    "description": "Migration tool for Nextcloud local to S3 container",
+    "type": "project",
+    "require": {
+        "php": ">=7.4",
+        "aws/aws-sdk-php": "^3.0",
+        "doctrine/dbal": "^3.0"
+    },
+    "authors": [
+        {
+            "name": "Thorsten Klein",
+            "email": "tk@basepeak.io"
+        }
+    ],
+    "minimum-stability": "stable"
+} 

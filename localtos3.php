@@ -8,19 +8,26 @@
 /*                     https://www.geef.nl/en/donate?action=15544                      */
 /* *********************************************************************************** */
 
-# best practice: run the script as the cloud-user!!
-# sudo -u clouduser php81 -d memory_limit=1024M /var/www/vhost/nextcloud/localtos3.php
+# best practice: run the script as the www-data user!
+# sudo -u www-data php81 -d memory_limit=1024M /var/www/vhost/nextcloud/localtos3.php
 
-# runuser -u clouduser -- composer require aws/aws-sdk-php
+$SCRIPT_USER = getenv('SCRIPT_USER') ?: 'www-data';
+# get current user and error if not SCRIPT_USER
+$CURRENT_USER = getenv('USER');
+if ($CURRENT_USER != $SCRIPT_USER) {
+  echo "\nERROR: This script must be run as the $SCRIPT_USER user!\n";
+  die;
+}
+
+# su -l www-data -s /bin/bash -c "composer require aws/aws-sdk-php"
 use Aws\S3\S3Client;
 use Aws\S3\Exception\S3Exception;
+use Aws\S3\Exception\S3MultipartUploadException;
+use Aws\S3\MultipartUploader;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception;
 
-# uncomment this for large file uploads (Amazon advises this voor 100Mb+ files)
-use Aws\S3\MultipartUploader;
-use Aws\S3\Exception\S3MultipartUploadException;
-use Aws\S3\Exception\MultipartUploadException;
+# uncomment this for large file uploads (Amazon advises this for 100Mb+ files)
 $MULTIPART['threshold'] = getenv('MULTIPART_THRESHOLD_MB') !== false ? getenv('MULTIPART_THRESHOLD_MB') : 500; # Megabytes
 $MULTIPART['retry']     = getenv('MULTIPART_RETRY') !== false ? getenv('MULTIPART_RETRY') : 0; # number of retry attempts (set to 0 for just one try)
 
@@ -29,39 +36,38 @@ echo "\n########################################################################
      "\n".
      "\n Reading config...";
 
-     $PREVIEW_MAX_AGE = getenv('PREVIEW_MAX_AGE') ?: 0; // max age (days) of preview images (EXPERIMENTAL! 0 = no del)
-     $PREVIEW_MAX_DEL = getenv('PREVIEW_MAX_DEL') ?: 0.005; // max amount of previews to delete at a time (when < 1 & > 0 => percentage! )..
-     
-     // Note: Preferably use absolute path without trailing directory separators
-     $PATH_BASE      = getenv('PATH_BASE') ?: '/var/www/vhost/nextcloud'; // Path to the base of the main Nextcloud directory
-     
-     $PATH_NEXTCLOUD = getenv('PATH_NEXTCLOUD') ?: $PATH_BASE.'/public_html'; // Path of the public Nextcloud directory
-     
-     $PATH_BACKUP    = getenv('PATH_BACKUP') ?: $PATH_BASE.'/bak'; // Path for backup of MySQL database (you must create it yourself..)
-     
-     $OCC_BASE       = getenv('OCC_BASE') ?: 'sudo -u clouduser php82 -d memory_limit=1024M '.$PATH_NEXTCLOUD.'/occ ';
-     // don't forget this one --. (if you don't run the script as the 'clouduser', see first comment at the top)
-     #$OCC_BASE       = 'sudo -u clouduser php81 -d memory_limit=1024M '.$PATH_NEXTCLOUD.'/occ ';
-     
-     // set $TEST to 0 for LIVE!!
-     // set $TEST to 1 for all data : NO db modifications, with file modifications/uploads/removal
-     // set $TEST to user name for single user (migration) test
-     // set $TEST to 2 for complete dry run
-     $TEST = getenv('TEST') ?? 2; //'admin';//'appdata_oczvcie123w4';
-     
-     // ONLY when migration is all done you can set this to 0 for the S3-consistency checks
-     $SET_MAINTENANCE = getenv('SET_MAINTENANCE') ?: 1; // only in $TEST=0 Nextcloud will be put into maintenance mode
-     
-     $SHOWINFO = getenv('SHOWINFO') ?: 1; // set to 0 to force much less info (while testing)
-     
-     $SQL_DUMP_USER = getenv('SQL_DUMP_USER') ?: ''; // leave both empty if nextcloud user has enough rights..
-     $SQL_DUMP_PASS = getenv('SQL_DUMP_PASS') ?: '';
-     
-     $CONFIG_OBJECTSTORE = getenv('CONFIG_OBJECTSTORE') ?: dirname(__FILE__).'/storage.config.php';
-     
-     # It is probably wise to set the two vars below to '1' once, let the 'Nextcloud' do some checking..
-     $DO_FILES_CLEAN = getenv('DO_FILES_CLEAN') ?: 0; // perform occ files:cleanup    | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
-     $DO_FILES_SCAN  = getenv('DO_FILES_SCAN') ?: 0; // perform occ files:scan --all | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
+$PREVIEW_MAX_AGE = getenv('PREVIEW_MAX_AGE') ?: 0; // max age (days) of preview images (EXPERIMENTAL! 0 = no del)
+$PREVIEW_MAX_DEL = getenv('PREVIEW_MAX_DEL') ?: 0.005; // max amount of previews to delete at a time (when < 1 & > 0 => percentage! )..
+
+// Note: Preferably use absolute path without trailing directory separators
+$PATH_BASE      = getenv('PATH_BASE') ?: '/var/www/html'; // Path to the base of the main Nextcloud directory
+
+$PATH_NEXTCLOUD = getenv('PATH_NEXTCLOUD') ?: $PATH_BASE; // Path of the public Nextcloud directory
+
+$PATH_BACKUP    = getenv('PATH_BACKUP') ?: $PATH_BASE.'/bak'; // Path for backup of MySQL database (you must create it yourself..)
+
+$OCC_BASE       = getenv('OCC_BASE') ?: 'php -d memory_limit=2048M '.$PATH_NEXTCLOUD.'/occ ';
+
+
+// set $TEST to 0 for LIVE!!
+// set $TEST to 1 for all data : NO db modifications, with file modifications/uploads/removal
+// set $TEST to user name for single user (migration) test
+// set $TEST to 2 for complete dry run
+$TEST = getenv('TEST') ?? 2; //'admin';//'appdata_oczvcie123w4';
+
+// ONLY when migration is all done you can set this to 0 for the S3-consistency checks
+$SET_MAINTENANCE = getenv('SET_MAINTENANCE') ?: 1; // only in $TEST=0 Nextcloud will be put into maintenance mode
+
+$SHOWINFO = getenv('SHOWINFO') ?: 1; // set to 0 to force much less info (while testing)
+
+$SQL_DUMP_USER = getenv('SQL_DUMP_USER') ?: ''; // leave both empty if nextcloud user has enough rights..
+$SQL_DUMP_PASS = getenv('SQL_DUMP_PASS') ?: '';
+
+$CONFIG_OBJECTSTORE = getenv('CONFIG_OBJECTSTORE') ?: dirname(__FILE__).'/storage.config.php';
+
+# It is probably wise to set the two vars below to '1' once, let the 'Nextcloud' do some checking..
+$DO_FILES_CLEAN = getenv('DO_FILES_CLEAN') ?: 0; // perform occ files:cleanup    | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
+$DO_FILES_SCAN  = getenv('DO_FILES_SCAN') ?: 0; // perform occ files:scan --all | can take a while on large accounts (should not be necessary but cannot hurt / not working while in maintenance.. )
 
 ############################################################################ end config #
 
@@ -334,7 +340,7 @@ if (!$result = $conn->executeQuery("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`
     if (substr($row['id'], 0, 13) == 'object::user:') {
       $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 13) . DIRECTORY_SEPARATOR . $row['path'];
     }
-    else if (substr($row['id'], 0, 6) == 'home::') {
+    elseif (substr($row['id'], 0, 6) == 'home::') {
       $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 6) . DIRECTORY_SEPARATOR . $row['path'];
     } else {
       $path = $PATH_DATA . DIRECTORY_SEPARATOR . $row['path'];
@@ -444,7 +450,7 @@ else {
     $current++;
     $infoLine = "\n".$current."  /  ".substr($object['Key'],8)."\t".$object['Key'] . "\t" . $object['Size'] . "\t" . (array_key_exists('LastModified', $object) ? $object['LastModified'] : '-') . "\t";
 
-    if ( !preg_match('/^[0-9]+$/',substr($object['Key'],8)) ) {
+    if ( !preg_match('/^\d+$/',substr($object['Key'],8)) ) {
       echo "\nFiles in the S3 bucket should be of structure 'urn:oid:[number]',".
            "\nThe bucket that Nextcloud uses may only contain files of this structure.".
            "\nFile '".$object['Key']."' does not conform to that structure!\n";
@@ -469,7 +475,7 @@ else {
     if ($result->rowCount() > 1) {
         echo "\ndouble file found in oc_filecache, this can not be!?\n";
         die;
-    } else if ($result->rowCount() == 0) { # in s3, not in db, remove from s3
+    } elseif ($result->rowCount() == 0) { # in s3, not in db, remove from s3
         if ($showinfo) { echo $infoLine."\nID:".$object['Key']."\ton S3, but not in oc_filecache, remove..."; }
         if (!empty($TEST)) { #  && $TEST == 2
           echo ' not removed ($TEST != 0)';
@@ -486,7 +492,7 @@ else {
         if (substr($row['id'], 0, 13) == 'object::user:') {
         $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 13) . DIRECTORY_SEPARATOR . $row['path'];
         }
-        else if (substr($row['id'], 0, 6) == 'home::') {
+        elseif (substr($row['id'], 0, 6) == 'home::') {
           $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 6) . DIRECTORY_SEPARATOR . $row['path'];
         } else {
           $path = $PATH_DATA . DIRECTORY_SEPARATOR . $row['path'];
@@ -604,7 +610,7 @@ if (!$result = $conn->executeQuery("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`
       if (substr($row['id'], 0, 13) == 'object::user:') {
         $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 13) . DIRECTORY_SEPARATOR . $row['path'];
       }
-      else if (substr($row['id'], 0, 6) == 'home::') {
+      elseif (substr($row['id'], 0, 6) == 'home::') {
         $path = $PATH_DATA . DIRECTORY_SEPARATOR . substr($row['id'], 6) . DIRECTORY_SEPARATOR . $row['path'];
       } else {
         $path = $PATH_DATA . DIRECTORY_SEPARATOR . $row['path'];
@@ -648,7 +654,7 @@ if (!$result = $conn->executeQuery("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`
             echo "\t".'not removed ($TEST != 0)'."\n";
           }
         }
-      } else if ($showinfo) {
+      } elseif ($showinfo) {
         echo "SKIP (\$TEST = $TEST)";
       }
     } else {
@@ -670,7 +676,7 @@ if (!$result = $conn->executeQuery("SELECT `ST`.`id`, `FC`.`fileid`, `FC`.`path`
     $new.= (strlen($prev)<=strlen($new))? '' : str_repeat(' ' , strlen($prev)-strlen($new) );
     $prev = $new;
     echo $prev;
-  }  
+  }
   echo "\nFiles in oc_filecache added to S3: ".$LOCAL_ADDED[0]."\t(".readableBytes($LOCAL_ADDED[1]).")";
 }
 echo "\nCopying files finished";
@@ -718,11 +724,10 @@ if (!$result = $conn->executeQuery("SELECT `oc_filecache`.`fileid`, `oc_filecach
     $S3_PARENTS = array_unique($S3_PARENTS);
     echo "\nremoving parents... (".count($S3_PARENTS)." database entries)";
     foreach ($S3_PARENTS as $s3_parent) {
-      echo "\nparent obeject id: ".$s3_parent;
+      echo "\nparent object id: ".$s3_parent;
       if ( 1 ) {
         echo ' EXPERIMENTAL: no deletion, only detection';
-      } else
-      if (!empty($TEST) && $TEST == 2) {
+      } elseif (!empty($TEST) && $TEST == 2) {
         echo ' not removed ($TEST = 2)';
       } else {
         $conn->executeQuery("DELETE FROM `oc_filecache` WHERE `oc_filecache`.`fileid` = ?", [$s3_parent]);
@@ -739,13 +744,13 @@ if (empty($TEST)) {
               
   // Execute the query to find object storage conflicts
   $objectStorageConflicts = $conn->fetchAllAssociative("
-      SELECT SUBSTRING_INDEX(home.id, 'home::', -1) AS id, 
-            home.numeric_id AS numeric_id_home, 
-            object.numeric_id AS numeric_id_object 
-      FROM oc_storages AS home 
-      JOIN oc_storages AS object 
+      SELECT SUBSTRING_INDEX(home.id, 'home::', -1) AS id,
+            home.numeric_id AS numeric_id_home,
+            object.numeric_id AS numeric_id_object
+      FROM oc_storages AS home
+      JOIN oc_storages AS object
       ON SUBSTRING_INDEX(home.id, 'home::', -1) = SUBSTRING_INDEX(object.id, 'object::user:', -1) 
-      WHERE home.id LIKE 'home::%' 
+      WHERE home.id LIKE 'home::%'
       AND object.id LIKE 'object::user:%'
   ");
 
@@ -792,7 +797,7 @@ if (empty($TEST)) {
         $UpdatesDone .= '/'.$conn->executeQuery("SELECT ROW_COUNT()")->fetchOne();
   }
   if ($UpdatesDone == '0/0' ) {
-#    echo $dashLine." no modefications needed";
+    echo $dashLine." no modifications needed";
   } else {
     echo $dashLine."\noc_storages altered (".$UpdatesDone.")";
   }
@@ -803,7 +808,7 @@ if (empty($TEST)) {
           echo $dashLine."\n-Changed mount provider class of ".$key." from home to object";
       $dashLine = '';
     }
-  }  
+  }
   
   echo "\n".
        "\n#########################################################################################";
@@ -840,7 +845,7 @@ if (empty($TEST)) {
          "\n                   you'll be back to 'local' (let me know, via GitHub, I'll try to help)".
          "\n#########################################################################################";
   }
-  else if ($OBJECT_STORE_ID > 0 ) {
+  elseif ($OBJECT_STORE_ID > 0 ) {
     if ($SET_MAINTENANCE) { // maintenance mode
       $process = occ($OCC_BASE,'maintenance:mode --off');
       echo $process;
@@ -864,7 +869,7 @@ if (empty($TEST)) {
          "\nThe importance of the order to do this is EXTREME, other order can brick your Nextcloud!!\n".
          "\n".
          "\n#########################################################################################";
-  }  
+  }
   echo "\n\n";
   
 } else {
@@ -917,13 +922,12 @@ function S3list($s3, $bucket, $maxIteration = 10000000) {
 }
 #########################################################################################
 function S3put($s3, $bucket, $vars = array() ) {
-  #return 'dummy';
   if (is_string($vars)      ) {
     if (file_exists($vars)) {
       $vars = array('SourceFile' => $vars);
     }
     else {
-      return 'ERROR: S3put($cms, $bucket, $vars)';      
+      return 'ERROR: S3put($cms, $bucket, $vars)';
     }
   }
   if (empty($vars['Bucket'])     ) { $vars['Bucket'] = $bucket; }
@@ -957,7 +961,7 @@ function S3put($s3, $bucket, $vars = array() ) {
     } else {
       return 'ERROR: '.$vars['Key'].' was not uploaded';
     }
-  } catch (S3MultipartUploadException | MultipartUploadException | S3Exception | Exception $e) {
+  } catch (S3MultipartUploadException | S3Exception | Exception $e) {
     if (!empty($GLOBALS['MULTIPART']['retry'])) {
       if (!isset($GLOBALS['MULTIPART']['retry_count'])) { $GLOBALS['MULTIPART']['retry_count'] = 1; }
       else                                              { $GLOBALS['MULTIPART']['retry_count']++;   }
@@ -987,7 +991,6 @@ function S3del($s3, $bucket, $vars = array() ) {
 }
 #########################################################################################
 function S3get($s3, $bucket, $vars = array() ) {
-  #return 'dummy';
   if (is_string($vars)      ) {
     $vars = array('Key' => $vars);
   }
@@ -1001,9 +1004,9 @@ function S3get($s3, $bucket, $vars = array() ) {
   if (empty($vars['Key'])   ) { return 'ERROR: no Key';    }
 
   try {
-    if (1 || $cms['aws']['client']->doesObjectExist($vars['Bucket']
+    if (1 || $s3->doesObjectExist($vars['Bucket']
                                               ,$vars['Key']) ) {
-      return $cms['aws']['client']->getObject($vars);
+      return $s3->getObject($vars);
     } else {
       return 'ERROR: '.$vars['Key'].' does not exist';
     }
